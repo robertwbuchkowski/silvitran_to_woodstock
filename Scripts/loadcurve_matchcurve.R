@@ -101,6 +101,42 @@ newPI = newPI %>%
   group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
   summarise(value = sum(value))
 
+# Break up the species codes into matches for the yield curve:
+
+# Yield curve species:
+c((yc %>% select(contains("v"), -VOLtot) %>% colnames() %>% str_split("v", simplify = T))[,1])
+
+# PO becomes TA
+# BI becomes WB?
+# IH becomes TA, WB?
+# FS becomes 75% BF and 25% RS/BS
+# SW becomes ???
+# HW becomes ???
+# PI becomes WP, RP, JP?
+# SF becomes 75% RS/BS and 25% BF
+# NC is removed
+# OH becomes RO, YB
+# OS becomes EC, EH
+# AL is removed
+# BE is removed
+# DS is removed
+# DF is removed
+# GB is removed
+# IR is removed
+# BC is removed
+# SP becomes RS/WS
+# AS is removed
+# BH is removed
+
+# Next need to code the matching! The code needs to add up all the relevant species unless they are recorded elsewhere in the stand. Need to figure out how to deal with that part...
+
+unmatchedspecies = unique(newPI$Species)[!(unique(newPI$Species) %in% c((yc %>% select(contains("v"), -VOLtot) %>% colnames() %>% str_split("v", simplify = T))[,1]))]
+
+table(newPI$Species) %>%
+  data.frame() %>%
+  filter(Var1 %in% unmatchedspecies) %>%
+  arrange(-Freq)
+
 # Check that they all sum to 1:
 newPI %>% summarize(t = sum(value)) %>% pull(t) %>% unique()
 
