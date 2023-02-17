@@ -8,13 +8,13 @@ library(tidyverse)
 LF = list.files("YieldCurves", recursive = T)
 
 # Keep only the correct yield curve files:
-LF = LF[grepl("Z_Z_Z_P1_BL.csv", LF)]
+LF = LF[grepl("Z_Z_Z_P1_BL.xlsx", LF)]
 
 # Load in the yield curves:
 yc = vector("list", length = length(LF))
 
 for(i in 1:length(LF)){
-  yc[[i]] = read_csv(paste0("YieldCurves/",LF[i])) %>%
+  yc[[i]] = readxl::read_xlsx(paste0("YieldCurves/",LF[i])) %>%
     mutate(FUNA = str_split(LF[i], "/")[[1]][1]) %>%
     pivot_longer(!`_Age` & !FUNA)
 }
@@ -22,16 +22,8 @@ for(i in 1:length(LF)){
 yc = do.call("rbind", yc) %>%
   pivot_wider(values_fill = 0) # This is OK because we are filling in missing species with zero volume
 
-# Get the landscape data ----
-
-# This is Cedric's landscape---does not contain the information that we need and no longer necessary to group stands--the matching algorithm will do that for us.
-if(F){ 
-  # Load in Cedric's landscape file:
-  WK_Land = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromColleagues/Cedric_gagetown_landscape/WK_LANDBASE_052022.shp")
-  
-  rm(WK_Land); gc()
-}
-
+# Extract the LiDAR data by data if needed ----
+# (Once you have the file "LiDAR_extracts_PI.rds" this is not necessary)
 
 # Load in photo-interpreted data since there is no species composition in the other one:
 
@@ -70,7 +62,7 @@ PIobjects %>% write_rds("Data/LiDAR_extracts_PI.rds")
 
 rm(PIobjects); gc()
 
-# Combine the LiDAR data and the PI data:
+# Get the landscape data ----
 
 PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
 
@@ -137,8 +129,29 @@ table(newPI$Species) %>%
   filter(Var1 %in% unmatchedspecies) %>%
   arrange(-Freq)
 
-# Check that they all sum to 1:
-newPI %>% summarize(t = sum(value)) %>% pull(t) %>% unique()
+rm(unmatchedspecies)
+
+# Convert the group or unmatched species that are at high frequency to species in Anthony's model:
+newPI = newPI %>%
+  left_join(
+    readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
+      select(-Allocation1) %>%
+      pivot_wider(names_from = `Species Code`, values_from = Allocation, values_fill = 0), by = c("Species" = "Group Code")
+  ) 
+
+readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
+  group_by(`Group Code`) %>%
+  summarise(Allocation = sum(Allocation)) %>% pull(Allocation) %>% unique()
+
+newPI %>% filter(is.na(TA)) %>% pull(Species) %>% unique() # All these are codes we are OK getting rid of
+
+newPI = newPI %>%
+  rename(totvalue = value) %>%
+  pivot_longer(!OBJECTID & !Species & !totvalue) %>%
+  filter(value > 0) %>%
+  mutate(value = totvalue*value/100) %>% # Calculate the new percentage
+  select(-Species, -totvalue) %>%
+  rename(Species = name)
 
 # GMV9 matches with volume in Anthony curves
 # TPH0 matches with DTY9 in Antony curves
@@ -155,10 +168,6 @@ yc2 = yc %>%
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
   pivot_longer(!`_Age` & !FUNA) %>%
   separate(name, into = c("Species", NA), sep = -1)
-
-# Anthony only has some of the species...all not included in the model are first treated as mismatches:
-sort(unique(PImatchyc$Species))
-sort(unique(yc2$Species))
 
 rescale01 <- function(X){
   (X - min(X, na.rm = T))/(max(X, na.rm = T) - min(X, na.rm = T))
@@ -275,6 +284,7 @@ finalmap %>%
 finalmap %>%
   ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
 dev.off()
+
 
 # Read in species type if needed:
 read_csv("Data/SPcodeHWSW.csv") %>% select(-Name)
