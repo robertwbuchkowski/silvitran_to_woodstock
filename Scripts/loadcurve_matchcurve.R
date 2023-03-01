@@ -286,7 +286,7 @@ map <- map[!duplicated(map$geometry),]
 map %>%
   write_sf("Data/Cedricmap/Cedricmap.shp")
 
-st_write(, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
+st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
 
 
 
