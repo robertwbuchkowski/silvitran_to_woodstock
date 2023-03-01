@@ -26,7 +26,7 @@ yc = do.call("rbind", yc) %>%
 
 PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
 
-newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp")%>% 
+newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   
   #Keep only what we need for the match:
   tibble() %>%
@@ -95,13 +95,13 @@ rm(unmatchedspecies)
 newPI = newPI %>%
   left_join(
     readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
-      select(-Allocation1) %>%
-      pivot_wider(names_from = `Species Code`, values_from = Allocation, values_fill = 0), by = c("Species" = "Group Code")
+      select(-Allocation1, - Allocation) %>%
+      pivot_wider(names_from = `Species Code`, values_from = Allocation_Mike, values_fill = 0), by = c("Species" = "Group Code")
   ) 
 
 readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
   group_by(`Group Code`) %>%
-  summarise(Allocation = sum(Allocation)) %>% pull(Allocation) %>% unique()
+  summarise(Allocation = sum(Allocation_Mike)) %>% pull(Allocation) %>% unique()
 
 newPI %>% filter(is.na(TA)) %>% pull(Species) %>% unique() # All these are codes we are OK getting rid of
 
@@ -203,18 +203,90 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand.rds") 
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_3.rds") 
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand.rds")
+finalmatch = read_rds("Data/matchingFUNAage_stand_2.rds")
 
 
-finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>% 
-  select(OBJECTID, L1FUNA,Shape_Area) %>%
+finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020.shp") %>% 
+  select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
   left_join(
     finalmatch
   )
+
+
+#Add Woodstock themes ----
+library(data.table)
+map = finalmap
+
+Zones = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/mgmt.shp")
+
+NAD83 <- st_crs("+proj=sterea +lat_0=46.5 +lon_0=-66.5 +k=0.999912 +x_0=2500000 +y_0=7500000 +ellps=GRS80 +units=m +no_defs")
+Zones <- st_transform(Zones,st_crs(NAD83))
+map <- st_transform(map,st_crs(NAD83))
+
+map <- st_intersection(map, left = TRUE, 
+                       Zones [ , c("Zone")],left = TRUE) #left = FALSE retain only overlap
+map = map %>% 
+  rename("_Age" = "X_Age", "THEME3" = "Zone", "THEME4" = "THEME5")
+
+#Woodstock Age
+map <- as.data.table(map)
+map[ , WKAge := `_Age`/5 ]
+map[ WKAge < 1 , WKAge := 1 ] #no bad _age in Woodstock
+
+#THEME4
+map$FUNA = map$FUNA %>% replace_na("XXNA")
+map[FUNA %in% c("XXNA"), THEME4:= "D1"]
+map$THEME4 = map$THEME4 %>% replace_na("B1")
+
+#THEME2
+map = map %>% 
+  rename("THEME2" = "FUNA")
+
+#THEME1
+#commercial thinning & pre-commercial thinning
+map[TRT %in% c("TI", "CT"),THEME1:= "TI"]
+#partial harvest
+map[TRT %in% c("PC", "ST"),THEME1:= "PC"]
+#plantations
+map[TRT %in% c("PL"),THEME1:= "PL"]
+#natural
+map$THEME1 = map$THEME1 %>% replace_na("NA")
+#non-forested
+map[THEME2 %in% c("XXNF"),THEME1:= "XX"]
+
+#THEME5
+map[ WKAge %between% c(0,3) , THEME5 := 0 ]
+map[ WKAge %between% c(2,9) , THEME5 := 25 ]
+map[ WKAge %between% c(8,14) , THEME5 := 50 ]
+map[ WKAge > 13 , THEME5 := 75 ]
+#age col based on THEME5
+map[, c("THEME5", "WKAge")] <- lapply(map[, c("THEME5", "WKAge")], as.integer)
+map[ , TH5_WKage := THEME5/5 ]
+map[ THEME5 < 1 , TH5_WKage := 1 ]
+
+#THEME6
+map[,THEME6:= "P1"] #all stand now exist in 2020
+
+#THEME7
+map[,THEME7:= "BL"] #first run = all stand in baseline
+
+#reorder column
+map <- map[, c("OBJECTID", "Shape_Area", "TRT", "_Age", "WKAge", "TH5_WKage", "THEME1", "THEME2", "THEME3", "THEME4", "THEME5", "THEME6", "THEME7", "geometry")]
+
+#Recalculate Area in ha
+map <- st_as_sf(map)
+map$Shape_Area <- st_area(map)/10000
+
+map <- map[!duplicated(map$geometry),]
+
+st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
+
+
+
 
 # Calcualte the total species composition
 finalmap %>%
@@ -229,15 +301,15 @@ finalmap %>%
   summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
   mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
-  arrange(GMV9area) %>% write_csv("Data/matching_percents.csv")
+  arrange(GMV9area) %>% write_csv("matching_percents.csv")
 
 table(finalmap$L1FUNA, finalmap$FUNA) %>%
   as.data.frame() %>%
   pivot_wider(names_from = Var2, values_from = Freq) %>%
   rename(`Interpreted FUNA` = Var1) %>%
-  write_csv("Data/matching_FUNAs.csv")
+  write_csv("matching_FUNAs.csv")
 
-pdf("Plots/matching_maps.pdf", width = 8, height = 8)
+pdf("matching_maps.pdf", width = 8, height = 8)
 finalmap %>%
   ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
 
