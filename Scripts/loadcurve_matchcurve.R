@@ -207,10 +207,10 @@ do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_3.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand_2.rds")
+finalmatch = read_rds("Data/matchingFUNAage_stand_3.rds")
 
 
-finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020.shp") %>% 
+finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
   left_join(
     finalmatch
@@ -283,7 +283,10 @@ map$Shape_Area <- st_area(map)/10000
 
 map <- map[!duplicated(map$geometry),]
 
-st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
+map %>%
+  write_sf("Data/Cedricmap/Cedricmap.shp")
+
+st_write(, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
 
 
 
