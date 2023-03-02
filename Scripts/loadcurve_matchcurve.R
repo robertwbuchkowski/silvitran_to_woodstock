@@ -29,8 +29,20 @@ PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
 newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   
   #Keep only what we need for the match:
-  tibble() %>%
-  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR"))
+  st_drop_geometry() %>%
+  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR")) %>%
+  distinct() # Need to get rid of duplicate rows.
+
+# Confirm that each OBJECTID has the same properties:
+if(F){
+  OBJECTIDunique = unique(newPI$OBJECTID)
+  OBJECTIDunique2 = OBJECTIDunique
+  for(i in 1:length(OBJECTIDunique)){
+    OBJECTIDunique2[i] = dim(newPI %>% filter(OBJECTID == OBJECTIDunique[i]) %>% distinct())[1]
+  }
+  
+  max(OBJECTIDunique2)
+}
 
 # Calculate the proportion of species cover by OBJECTID:
 newPI = newPI %>%
@@ -203,17 +215,17 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_3.rds") 
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand.rds") 
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand_3.rds")
+finalmatch = read_rds("Data/matchingFUNAage_stand.rds")
 
 
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
   left_join(
-    finalmatch
+    finalmatch, by = "OBJECTID"
   )
 
 
@@ -289,11 +301,23 @@ map %>%
 st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
 
 
+# Cross check Age and harvest data:
+rawloadPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp")
 
+rawloadPI %>%
+  st_drop_geometry() %>%
+  select(OBJECTID, CAT, TRT, TRTYR)  %>%
+  left_join(
+    finalmatch %>% select(OBJECTID,`_Age`, FUNA), by = "OBJECTID"
+  ) %>%
+  filter(!is.na(TRT)) %>%
+  mutate(StandEst = 2018 - `_Age`) %>%
+  filter(TRTYR > StandEst) %>% pull(TRT) %>% table()
+  
 
-# Calcualte the total species composition
+# Calculate the total species composition
 finalmap %>%
-  tibble() %>%
+  st_drop_geometry() %>%
   select(OBJECTID, Shape_Area, `_Age`, FUNA) %>%
   left_join(
     yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
