@@ -26,23 +26,15 @@ yc = do.call("rbind", yc) %>%
 
 PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
 
-newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
-  
-  #Keep only what we need for the match:
-  st_drop_geometry() %>%
-  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR")) %>%
-  distinct() # Need to get rid of duplicate rows.
+# Here we are using the original map, because the divided polygons are too small for accurate LiDAR data!
+newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp")
 
-# Confirm that each OBJECTID has the same properties:
-if(F){
-  OBJECTIDunique = unique(newPI$OBJECTID)
-  OBJECTIDunique2 = OBJECTIDunique
-  for(i in 1:length(OBJECTIDunique)){
-    OBJECTIDunique2[i] = dim(newPI %>% filter(OBJECTID == OBJECTIDunique[i]) %>% distinct())[1]
-  }
+if(max(table(newPI$OBJECTID)) != 1) print("WARNING: Unique indentified is duplicated!") else print("YAY: Unique indentifier is unique!")
   
-  max(OBJECTIDunique2)
-}
+#Keep only what we need for the match:
+newPI = newPI %>%  
+  st_drop_geometry() %>%
+  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR"))
 
 # Calculate the proportion of species cover by OBJECTID:
 newPI = newPI %>%
@@ -215,18 +207,29 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand.rds") 
+ do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand.rds") 
 
 # Load back in the final matches and plot them:
 
 finalmatch = read_rds("Data/matchingFUNAage_stand.rds")
 
+# Look at poor matches (N = 15):
+finalmatch %>% 
+  filter(is.na(diff_all)) %>%
+  pull(OBJECTID)
+# [1]  1629  1953  4436  4706  5073  6833  9864 10615 10642 10655 11220 12930
+# [13] 13036 13037 13038
 
+
+
+# Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
   left_join(
     finalmatch, by = "OBJECTID"
-  )
+  ) %>%
+  mutate(Shape_Area = st_area(.)) %>%
+  mutate(Shape_Area = as.numeric(Shape_Area/10000)) # Convert m2 to hectares
 
 
 #Add Woodstock themes ----
@@ -300,21 +303,6 @@ map %>%
 
 st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
 
-
-# Cross check Age and harvest data:
-rawloadPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp")
-
-rawloadPI %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, CAT, TRT, TRTYR)  %>%
-  left_join(
-    finalmatch %>% select(OBJECTID,`_Age`, FUNA), by = "OBJECTID"
-  ) %>%
-  filter(!is.na(TRT)) %>%
-  mutate(StandEst = 2018 - `_Age`) %>%
-  filter(TRTYR > StandEst) %>% pull(TRT) %>% table()
-  
-
 # Calculate the total species composition
 finalmap %>%
   st_drop_geometry() %>%
@@ -323,7 +311,7 @@ finalmap %>%
     yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
   ) %>%
   pivot_longer(contains('v')) %>%
-  mutate(GMV9area = value/Shape_Area) %>%
+  mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
   group_by(name) %>%
   summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%

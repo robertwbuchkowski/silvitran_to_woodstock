@@ -36,6 +36,32 @@ PIobjects = newPI %>%
             TPH9_min = min(TPH9, na.rm = T),
             TPH9_max = max(TPH9, na.rm = T))
 
+# Check the OBJECTIDs that have nothing extracted:
+missingdata = PIobjects %>% filter(is.na(GMV9_mean)) %>% pull(OBJECTID)
+
+missingdata2 = newPI %>%
+  filter(OBJECTID %in% missingdata) %>%
+  st_join(
+    temp1
+  )
+
+
+
+temp1 %>% st_crop(newPI %>%
+                    filter(OBJECTID %in% missingdata[1]) %>%
+                    st_bbox())
+
+st_bbox(temp1)
+
+newPI %>%
+  filter(OBJECTID %in% missingdata) %>%
+  mutate(Area = st_area(.)) %>% select(Area)
+
+newPI %>%
+  filter(OBJECTID %in% missingdata) %>%
+  ggplot() + geom_sf()
+
+# Clean up:
 rm(temp1); gc() # Get rid of large LiDAR data set.
 
 PIobjects %>% write_rds("Data/LiDAR_extracts_PI.rds")
