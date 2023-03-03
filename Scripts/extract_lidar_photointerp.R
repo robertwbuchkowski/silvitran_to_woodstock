@@ -36,30 +36,41 @@ PIobjects = newPI %>%
             TPH9_min = min(TPH9, na.rm = T),
             TPH9_max = max(TPH9, na.rm = T))
 
-# Check the OBJECTIDs that have nothing extracted:
+
+# Check the OBJECTIDs that have nothing extracted and find the nearest LiDAR data points:
 missingdata = PIobjects %>% filter(is.na(GMV9_mean)) %>% pull(OBJECTID)
 
-missingdata2 = newPI %>%
-  filter(OBJECTID %in% missingdata) %>%
-  st_join(
-    temp1
-  )
+for(i in 1:length(missingdata)){
+  tttt = newPI %>%
+    filter(OBJECTID %in% missingdata[i])
+  
+  tttt2 = temp1 %>% st_crop(tttt %>%
+                              st_buffer(dist = 10) %>%
+                              st_bbox())
+  
+  PIobjects = PIobjects %>%
+    bind_rows(
+      tttt2 %>%
+        st_drop_geometry() %>%
+        mutate(OBJECTID = missingdata[i]) %>%
+        group_by(OBJECTID) %>%
+        summarise(GMV9_mean = mean(GMV9, na.rm = T),
+                  GMV9_sd = sd(GMV9, na.rm = T),
+                  GMV9_min = min(GMV9, na.rm = T),
+                  GMV9_max = max(GMV9, na.rm = T),
+                  TPH9_mean = mean(TPH9, na.rm = T),
+                  TPH9_sd = sd(TPH9, na.rm = T),
+                  TPH9_min = min(TPH9, na.rm = T),
+                  TPH9_max = max(TPH9, na.rm = T))
+    )
+  print(i)
+}
 
+PIobjects = PIobjects %>%
+  filter(!is.na(GMV9_mean))
 
-
-temp1 %>% st_crop(newPI %>%
-                    filter(OBJECTID %in% missingdata[1]) %>%
-                    st_bbox())
-
-st_bbox(temp1)
-
-newPI %>%
-  filter(OBJECTID %in% missingdata) %>%
-  mutate(Area = st_area(.)) %>% select(Area)
-
-newPI %>%
-  filter(OBJECTID %in% missingdata) %>%
-  ggplot() + geom_sf()
+# Should be 1:
+max(table(PIobjects$OBJECTID))
 
 # Clean up:
 rm(temp1); gc() # Get rid of large LiDAR data set.
