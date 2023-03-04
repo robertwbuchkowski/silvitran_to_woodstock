@@ -30,7 +30,19 @@ PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
 newPI = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp")
 
 if(max(table(newPI$OBJECTID)) != 1) print("WARNING: Unique indentified is duplicated!") else print("YAY: Unique indentifier is unique!")
-  
+
+# Check the FUNA that Cedric calculated:
+Cedric_FUNA = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromColleagues/Cedric_gagetown_landscape/WK_LANDBASE_052022.shp") %>% 
+  st_drop_geometry() %>%
+  select(OBJECTID, THEME2) %>%
+  arrange(OBJECTID) %>%
+  distinct()
+
+Cedric_FUNA = Cedric_FUNA %>%
+  group_by(OBJECTID) %>%
+  slice_sample(n = 1) %>%
+  ungroup()
+
 #Keep only what we need for the match:
 newPI = newPI %>%  
   st_drop_geometry() %>%
@@ -56,6 +68,25 @@ newPI = newPI %>%
   select(-name) %>%
   group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
   summarise(value = sum(value))
+
+newPI %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
+
+# Check if all the OBJECTIDs are in both data sets:
+all(unique(newPI$OBJECTID) %in% Cedric_FUNA$OBJECTID)
+
+# Calculate the proportion of species by cover:
+
+coverprops = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
+  st_drop_geometry() %>%
+  select(OBJECTID, Shape_Area) %>%
+  full_join(
+    newPI, by = "OBJECTID"
+  ) %>%
+  mutate(value = value*Shape_Area) %>%
+  group_by(Species) %>%
+  summarize(value = sum(value, na.rm = T)) %>%
+  mutate(value = value/sum(value, na.rm = T)) %>%
+  arrange(value) %>% print(n = Inf)
 
 # Break up the species codes into matches for the yield curve:
 
@@ -120,13 +151,13 @@ newPI = newPI %>%
 # GMV9 matches with volume in Anthony curves
 # TPH0 matches with DTY9 in Antony curves
 
-# Use the mean GMV9 for the fit:
+# Use the mean GMV9 for the fit by species:
 PImatchyc = newPI %>%
   left_join(
     PIobjects
   ) %>%
   mutate(GMV9 = GMV9_mean*value) %>%
-  select(OBJECTID, Species, GMV9) 
+  select(OBJECTID, Species, GMV9)
 
 yc2 = yc %>% 
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
@@ -144,25 +175,31 @@ result = vector('list', length = length(IDS))
 for(i in 1:length(IDS)){
   tmp1 = PImatchyc %>%
     filter(OBJECTID == IDS[i]) %>%
-    left_join(
+    # full_join(
+    #   tibble(Species = unique(yc2$Species))
+    # ) %>%
+    mutate(
+      OBJECTID = replace_na(OBJECTID, IDS[i]),
+      GMV9 = replace_na(OBJECTID, 0)
+    ) %>%
+    full_join(
       yc2
     ) %>%
-    filter(!is.na(FUNA))
+    filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))
   
   if(dim(tmp1)[1] > 0){ # If there is a species match, go forward with it
     tmp1 = tmp1 %>%
       mutate(diff = (GMV9 - value)^2) %>%
       group_by(OBJECTID, `_Age`, FUNA) %>%
-      summarise(diff = sum(diff), .groups = NULL) %>% # Something is not working here.
-      mutate(diff = diff) %>%
-      full_join(
+      summarise(diff = sum(diff), .groups = NULL) %>%
+      left_join(
         yc %>%
           select(`_Age`, FUNA, DTY9) %>%
           ungroup() %>%
           mutate(diff2 = (DTY9 - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "TPH9_mean"]))^2) %>%
           select(-DTY9), by = c("_Age", "FUNA")
       ) %>%
-      full_join(
+      left_join(
         yc %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
@@ -202,25 +239,22 @@ for(i in 1:length(IDS)){
       arrange(diff_all)
       
   }
+  tmp2 = tmp1 %>% filter(FUNA == Cedric_FUNA %>% filter(OBJECTID == IDS[i]) %>% pull(THEME2)) %>% arrange(diff_all)
   
-  result[[i]] = tmp1[1,] 
+  result[[i]] = rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA"))
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand.rds") 
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_rmzero.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand.rds")
-
-# Look at poor matches (N = 15):
-finalmatch %>% 
-  filter(is.na(diff_all)) %>%
-  pull(OBJECTID)
-# [1]  1629  1953  4436  4706  5073  6833  9864 10615 10642 10655 11220 12930
-# [13] 13036 13037 13038
-
-
+finalmatch = read_rds("Data/matchingFUNAage_stand.rds") %>%
+  mutate(Run = "IncludeZero") %>%
+  bind_rows(
+    read_rds("Data/matchingFUNAage_stand_rmzero.rds") %>%
+      mutate(Run = "RemoveZero")
+  )
 
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
@@ -230,6 +264,36 @@ finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landb
   ) %>%
   mutate(Shape_Area = st_area(.)) %>%
   mutate(Shape_Area = as.numeric(Shape_Area/10000)) # Convert m2 to hectares
+
+# Calculate the total species composition
+finalmap %>%
+  st_drop_geometry() %>%
+  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
+  left_join(
+    yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
+  ) %>%
+  pivot_longer(contains('v')) %>%
+  mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
+  group_by(name, Type, Run) %>%
+  summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
+  group_by(Type, Run) %>%
+  separate(name, into = c("Species", NA), sep = -1) %>%
+  mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
+  arrange(GMV9area) %>% write_csv("matching_percents.csv")
+
+table(finalmap$L1FUNA, finalmap$FUNA) %>%
+  as.data.frame() %>%
+  pivot_wider(names_from = Var2, values_from = Freq) %>%
+  rename(`Interpreted FUNA` = Var1) %>%
+  write_csv("matching_FUNAs.csv")
+
+pdf("matching_maps.pdf", width = 8, height = 8)
+finalmap %>%
+  ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
+
+finalmap %>%
+  ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
+dev.off()
 
 
 #Add Woodstock themes ----
@@ -302,32 +366,3 @@ map %>%
   write_sf("Data/Cedricmap/Cedricmap.shp")
 
 st_write(map, "GT_Match_02202023", driver="ESRI Shapefile", delete_layer = TRUE)
-
-# Calculate the total species composition
-finalmap %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA) %>%
-  left_join(
-    yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
-  ) %>%
-  pivot_longer(contains('v')) %>%
-  mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
-  group_by(name) %>%
-  summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
-  separate(name, into = c("Species", NA), sep = -1) %>%
-  mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
-  arrange(GMV9area) %>% write_csv("matching_percents.csv")
-
-table(finalmap$L1FUNA, finalmap$FUNA) %>%
-  as.data.frame() %>%
-  pivot_wider(names_from = Var2, values_from = Freq) %>%
-  rename(`Interpreted FUNA` = Var1) %>%
-  write_csv("matching_FUNAs.csv")
-
-pdf("matching_maps.pdf", width = 8, height = 8)
-finalmap %>%
-  ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
-
-finalmap %>%
-  ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
-dev.off()
