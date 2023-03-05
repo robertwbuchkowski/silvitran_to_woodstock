@@ -175,13 +175,6 @@ result = vector('list', length = length(IDS))
 for(i in 1:length(IDS)){
   tmp1 = PImatchyc %>%
     filter(OBJECTID == IDS[i]) %>%
-    # full_join(
-    #   tibble(Species = unique(yc2$Species))
-    # ) %>%
-    mutate(
-      OBJECTID = replace_na(OBJECTID, IDS[i]),
-      GMV9 = replace_na(OBJECTID, 0)
-    ) %>%
     full_join(
       yc2
     ) %>%
@@ -245,16 +238,11 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_rmzero.rds")
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_ignore.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand.rds") %>%
-  mutate(Run = "IncludeZero") %>%
-  bind_rows(
-    read_rds("Data/matchingFUNAage_stand_rmzero.rds") %>%
-      mutate(Run = "RemoveZero")
-  )
+finalmatch = read_rds("Data/matchingFUNAage_stand_ignore.rds")
 
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
@@ -268,37 +256,40 @@ finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landb
 # Calculate the total species composition
 finalmap %>%
   st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
+  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type) %>%
   left_join(
     yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
   ) %>%
   pivot_longer(contains('v')) %>%
   mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
-  group_by(name, Type, Run) %>%
+  group_by(name, Type) %>%
   summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
-  group_by(Type, Run) %>%
+  group_by(Type) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
   mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
-  arrange(GMV9area) %>% write_csv("matching_percents.csv")
+  filter(!is.na(Type)) %>%
+  arrange(GMV9area) %>% pivot_wider(names_from = Type, values_from = GMV9area) %>% arrange(Full) %>% write_csv("matching_percents.csv")
 
-table(finalmap$L1FUNA, finalmap$FUNA) %>%
+finalmap_Full = finalmap %>% filter(Type == "Full")
+
+table(finalmap_Full$L1FUNA, finalmap_Full$FUNA) %>%
   as.data.frame() %>%
   pivot_wider(names_from = Var2, values_from = Freq) %>%
   rename(`Interpreted FUNA` = Var1) %>%
   write_csv("matching_FUNAs.csv")
 
 pdf("matching_maps.pdf", width = 8, height = 8)
-finalmap %>%
+finalmap_Full %>%
   ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
 
-finalmap %>%
+finalmap_Full %>%
   ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
 dev.off()
 
 
 #Add Woodstock themes ----
 library(data.table)
-map = finalmap
+map = finalmap_Full
 
 Zones = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/mgmt.shp")
 
