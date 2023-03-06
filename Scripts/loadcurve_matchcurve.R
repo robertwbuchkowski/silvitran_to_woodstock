@@ -46,7 +46,24 @@ Cedric_FUNA = Cedric_FUNA %>%
 #Keep only what we need for the match:
 newPI = newPI %>%  
   st_drop_geometry() %>%
-  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR"))
+  select(OBJECTID, contains("L1S") & !L1SC, contains("L1PR"), contains("L2S"), contains("L2PR"))
+
+# Add in L2 data if L1 is absent:
+newPI = newPI %>%
+  mutate(L1S1 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S1, L1S1),
+         L1S2 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S2, L1S2),
+         L1S3 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S3, L1S3),
+         L1S4 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S4, L1S4),
+         L1S5 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S5, L1S5),
+         
+         L1PR1 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR1, L1PR1),
+         L1PR2 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR2, L1PR2),
+         L1PR3 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR3, L1PR3),
+         L1PR4 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR4, L1PR4),
+         L1PR5 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR5, L1PR5)) %>%
+  select(OBJECTID, contains("L1S"), contains("L1PR"))
+
+
 
 # Calculate the proportion of species cover by OBJECTID:
 newPI = newPI %>%
@@ -238,11 +255,11 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_ignore.rds")
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand_ignore.rds")
+finalmatch = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
 
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
