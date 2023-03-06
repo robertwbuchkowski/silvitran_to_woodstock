@@ -268,7 +268,11 @@ finalmap %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
   mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
   filter(!is.na(Type)) %>%
-  arrange(GMV9area) %>% pivot_wider(names_from = Type, values_from = GMV9area) %>% arrange(Full) %>% write_csv("matching_percents.csv")
+  arrange(GMV9area) %>% pivot_wider(names_from = Type, values_from = GMV9area) %>% arrange(Full) %>%
+  left_join(
+    coverprops %>% rename(`PI Cover` = value), by = "Species") %>% write_csv("matching_percents.csv")
+
+
 
 finalmap_Full = finalmap %>% filter(Type == "Full")
 
@@ -294,8 +298,8 @@ map = finalmap_Full
 Zones = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/mgmt.shp")
 
 NAD83 <- st_crs("+proj=sterea +lat_0=46.5 +lon_0=-66.5 +k=0.999912 +x_0=2500000 +y_0=7500000 +ellps=GRS80 +units=m +no_defs")
-Zones <- st_transform(Zones,st_crs(NAD83))
-map <- st_transform(map,st_crs(NAD83))
+# Zones <- st_transform(Zones,st_crs(NAD83))
+map <- st_transform(map,st_crs(Zones))
 
 map <- st_intersection(map, left = TRUE, 
                        Zones [ , c("Zone")],left = TRUE) #left = FALSE retain only overlap
