@@ -193,7 +193,8 @@ for(i in 1:length(IDS)){
   tmp1 = PImatchyc %>%
     filter(OBJECTID == IDS[i]) %>%
     full_join(
-      yc2
+      yc2, by = join_by(Species), relationship =
+        "many-to-many"
     ) %>%
     filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))
   
@@ -211,6 +212,13 @@ for(i in 1:length(IDS)){
       ) %>%
       left_join(
         yc %>%
+          select(`_Age`, FUNA, HGTmerch) %>%
+          ungroup() %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "AHT9_mean"]))^2) %>%
+          select(-HGTmerch), by = c("_Age", "FUNA")
+      ) %>%
+      left_join(
+        yc %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
           mutate(diff3 = (VOLtot - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "GMV9_mean"]))^2) %>%
@@ -219,12 +227,14 @@ for(i in 1:length(IDS)){
       ungroup() %>%
       mutate(diff = rescale01(diff),
              diff2 = rescale01(diff2),
+             diff4 = rescale01(diff4),
              diff3 = rescale01(diff3)) %>%
-      mutate(diff_all = diff + diff2 + diff3) %>%
+      mutate(diff_all = diff + diff4 + diff3) %>% # Excluding density match here
       arrange(diff_all) %>%
       rename(dSpecies = diff,
              dTHP9 = diff2,
-             dGMV9 = diff3)
+             dGMV9 = diff3,
+             dAHT = diff4)
   }else{ # If there are no species matches, only match volume and density
     tmp1 = yc %>%
       select(`_Age`, FUNA, DTY9) %>%
@@ -237,15 +247,24 @@ for(i in 1:length(IDS)){
           ungroup() %>%
           mutate(diff3 = (VOLtot - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
+      )  %>%
+      full_join(
+        yc %>%
+          select(`_Age`, FUNA, HGTmerch) %>%
+          ungroup() %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "AHT9_mean"]))^2) %>%
+          select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       mutate(diff2 = rescale01(diff2),
-             diff3 = rescale01(diff3))%>%
-      mutate(diff_all = diff2 + diff3) %>%
+             diff3 = rescale01(diff3),
+             diff4 = rescale01(diff4))%>%
+      mutate(diff_all = diff4 + diff3) %>%
       rename(dTHP9 = diff2,
-             dGMV9 = diff3) %>%
+             dGMV9 = diff3,
+             dAHT = diff4) %>%
       mutate(dSpecies = NA) %>%
       mutate(OBJECTID = IDS[i]) %>%
-      select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9, diff_all) %>%
+      select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9,dAHT, diff_all) %>%
       arrange(diff_all)
       
   }
@@ -255,11 +274,11 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
+finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial.rds")
 
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
@@ -290,7 +309,6 @@ finalmap %>%
     coverprops %>% rename(`PI Cover` = value), by = "Species") %>% write_csv("matching_percents.csv")
 
 
-
 finalmap_Full = finalmap %>% filter(Type == "Full")
 
 table(finalmap_Full$L1FUNA, finalmap_Full$FUNA) %>%
@@ -299,12 +317,59 @@ table(finalmap_Full$L1FUNA, finalmap_Full$FUNA) %>%
   rename(`Interpreted FUNA` = Var1) %>%
   write_csv("matching_FUNAs.csv")
 
-pdf("matching_maps.pdf", width = 8, height = 8)
+pdf("matching_maps_height.pdf", width = 8, height = 8)
 finalmap_Full %>%
   ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
 
 finalmap_Full %>%
   ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
+
+# Look at height and GMV9 relationships:
+
+finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID,`_Age`, FUNA) %>%
+  left_join(
+    yc, by = c("_Age", "FUNA")
+  ) %>%
+  left_join(
+    PIobjects, by = "OBJECTID"
+  ) %>%
+  ggplot(aes(x = AHT9_mean, y = HGTmerch)) + geom_point()
+
+finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID,`_Age`, FUNA) %>%
+  left_join(
+    yc, by = c("_Age", "FUNA")
+  ) %>%
+  left_join(
+    PIobjects, by = "OBJECTID"
+  ) %>%
+  ggplot(aes(x = GMV9_mean, y = DTY9)) + geom_point()
+
+finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID,`_Age`, FUNA) %>%
+  left_join(
+    yc, by = c("_Age", "FUNA")
+  ) %>%
+  left_join(
+    PIobjects, by = "OBJECTID"
+  ) %>%
+  ggplot(aes(x = TPH9_mean, y = VOLtot)) + geom_point()
+
+
+finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID,`_Age`, FUNA) %>%
+  left_join(
+    yc, by = c("_Age", "FUNA")
+  ) %>%
+  left_join(
+    PIobjects, by = "OBJECTID"
+  ) %>%
+  ggplot(aes(x = AHT9_mean, y = `_Age`)) + geom_point()
 dev.off()
 
 

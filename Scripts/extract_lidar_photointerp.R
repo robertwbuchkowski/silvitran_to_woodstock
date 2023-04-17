@@ -19,7 +19,7 @@ temp1 = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromColleagues/EFI_Gageto
   )
 
 # Keep only useful columns:
-temp1 = temp1[,c("UID","GMV9","TPH9","geometry")]; gc()
+temp1 = temp1[,c("UID","GMV9","TPH9", "AHT9","geometry")]; gc()
 
 PIobjects = newPI %>%
   st_join(
@@ -29,12 +29,12 @@ PIobjects = newPI %>%
   group_by(OBJECTID) %>%
   summarise(GMV9_mean = mean(GMV9, na.rm = T),
             GMV9_sd = sd(GMV9, na.rm = T),
-            GMV9_min = min(GMV9, na.rm = T),
-            GMV9_max = max(GMV9, na.rm = T),
+            
             TPH9_mean = mean(TPH9, na.rm = T),
             TPH9_sd = sd(TPH9, na.rm = T),
-            TPH9_min = min(TPH9, na.rm = T),
-            TPH9_max = max(TPH9, na.rm = T))
+            
+            AHT9_mean = mean(AHT9, na.rm = T),
+            AHT9_sd = sd(AHT9, na.rm = T))
 
 
 # Check the OBJECTIDs that have nothing extracted and find the nearest LiDAR data points:
@@ -56,12 +56,12 @@ for(i in 1:length(missingdata)){
         group_by(OBJECTID) %>%
         summarise(GMV9_mean = mean(GMV9, na.rm = T),
                   GMV9_sd = sd(GMV9, na.rm = T),
-                  GMV9_min = min(GMV9, na.rm = T),
-                  GMV9_max = max(GMV9, na.rm = T),
+                  
                   TPH9_mean = mean(TPH9, na.rm = T),
                   TPH9_sd = sd(TPH9, na.rm = T),
-                  TPH9_min = min(TPH9, na.rm = T),
-                  TPH9_max = max(TPH9, na.rm = T))
+                  
+                  AHT9_mean = mean(AHT9, na.rm = T),
+                  AHT9_sd = sd(AHT9, na.rm = T))
     )
   print(i)
 }
