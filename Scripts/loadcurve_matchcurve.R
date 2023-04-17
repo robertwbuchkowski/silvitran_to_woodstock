@@ -280,6 +280,47 @@ do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial
 
 finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial.rds")
 
+finalmatch_old = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
+
+finalmatch %>%
+  mutate(Run = "Density") %>%
+  bind_rows(
+    finalmatch_old %>%
+      mutate(Run = "Height")
+  ) %>%
+  filter(Type == "Full") %>%
+  ggplot(aes(x = `_Age`, fill = Run)) + geom_density(alpha = 0.5)
+
+
+area_objects = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
+  select(OBJECTID) %>%
+  mutate(Shape_Area = st_area(.)) %>%
+  mutate(Shape_Area = as.numeric(Shape_Area/10000))
+
+
+read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
+  select(OBJECTID) %>%
+  mutate(Shape_Area = st_area(.)) %>%
+  mutate(Shape_Area = as.numeric(Shape_Area/10000)) %>%
+  pull(Shape_Area) %>% sum()
+
+area_objects %>%
+  st_drop_geometry() %>%
+  left_join(
+    finalmatch %>%
+      mutate(Run = "Density") %>%
+      bind_rows(
+        finalmatch_old %>%
+          mutate(Run = "Height")
+      ) %>%
+      filter(Type == "Full")
+  ) %>%
+  group_by(`_Age`, Run) %>%
+  summarize(Shape_Area = sum(Shape_Area)) %>%
+  filter(!is.na(Run)) %>%
+  ggplot(aes(x = `_Age`, y = Shape_Area, color = Run)) + geom_line() + ylab("Area (ha)") + xlab("Age (periods)")
+
+
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
 finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
