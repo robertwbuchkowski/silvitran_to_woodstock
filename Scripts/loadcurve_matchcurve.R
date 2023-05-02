@@ -330,6 +330,11 @@ finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landb
   mutate(Shape_Area = st_area(.)) %>%
   mutate(Shape_Area = as.numeric(Shape_Area/10000)) # Convert m2 to hectares
 
+finalmap %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID, `_Age`, FUNA) %>%
+  write_sf("Data/height_match/height_match.shp")
+
 # Calculate the total species composition
 finalmap %>%
   st_drop_geometry() %>%
@@ -364,53 +369,6 @@ finalmap_Full %>%
 
 finalmap_Full %>%
   ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
-
-# Look at height and GMV9 relationships:
-
-finalmatch %>%
-  filter(Type == "Full") %>%
-  select(OBJECTID,`_Age`, FUNA) %>%
-  left_join(
-    yc, by = c("_Age", "FUNA")
-  ) %>%
-  left_join(
-    PIobjects, by = "OBJECTID"
-  ) %>%
-  ggplot(aes(x = AHT9_mean, y = HGTmerch)) + geom_point()
-
-finalmatch %>%
-  filter(Type == "Full") %>%
-  select(OBJECTID,`_Age`, FUNA) %>%
-  left_join(
-    yc, by = c("_Age", "FUNA")
-  ) %>%
-  left_join(
-    PIobjects, by = "OBJECTID"
-  ) %>%
-  ggplot(aes(x = GMV9_mean, y = DTY9)) + geom_point()
-
-finalmatch %>%
-  filter(Type == "Full") %>%
-  select(OBJECTID,`_Age`, FUNA) %>%
-  left_join(
-    yc, by = c("_Age", "FUNA")
-  ) %>%
-  left_join(
-    PIobjects, by = "OBJECTID"
-  ) %>%
-  ggplot(aes(x = TPH9_mean, y = VOLtot)) + geom_point()
-
-
-finalmatch %>%
-  filter(Type == "Full") %>%
-  select(OBJECTID,`_Age`, FUNA) %>%
-  left_join(
-    yc, by = c("_Age", "FUNA")
-  ) %>%
-  left_join(
-    PIobjects, by = "OBJECTID"
-  ) %>%
-  ggplot(aes(x = AHT9_mean, y = `_Age`)) + geom_point()
 dev.off()
 
 
