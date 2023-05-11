@@ -282,6 +282,7 @@ finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial.rds")
 
 finalmatch_old = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
 
+pdf("Plots/density.pdf")
 finalmatch %>%
   mutate(Run = "Density") %>%
   bind_rows(
@@ -290,7 +291,14 @@ finalmatch %>%
   ) %>%
   filter(Type == "Full") %>%
   ggplot(aes(x = `_Age`, fill = Run)) + geom_density(alpha = 0.5)
+dev.off()
 
+finalmatch = finalmatch %>%
+  mutate(Run = "Density") %>%
+  bind_rows(
+    finalmatch_old %>%
+      mutate(Run = "Height")
+  )
 
 area_objects = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
   select(OBJECTID) %>%
@@ -338,21 +346,30 @@ finalmap %>%
 # Calculate the total species composition
 finalmap %>%
   st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type) %>%
+  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
   left_join(
     yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
   ) %>%
   pivot_longer(contains('v')) %>%
   mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
-  group_by(name, Type) %>%
+  group_by(name, Type, Run) %>%
   summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
-  group_by(Type) %>%
+  group_by(Type, Run) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
   mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
-  filter(!is.na(Type)) %>%
-  arrange(GMV9area) %>% pivot_wider(names_from = Type, values_from = GMV9area) %>% arrange(Full) %>%
+  filter(!is.na(Type))  %>% 
+  filter(Type == "Full") %>%
+  arrange(GMV9area) %>% pivot_wider(names_from = Run, values_from = GMV9area) %>%
   left_join(
-    coverprops %>% rename(`PI Cover` = value), by = "Species") %>% write_csv("matching_percents.csv")
+    coverprops %>% rename(`PI Cover` = value), by = "Species") %>% write_csv("matching_percents_mike.csv")
+
+finalmap %>%
+  st_drop_geometry() %>%
+  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
+  filter(Type == 'Full') %>%
+  group_by(Run, FUNA) %>%
+  summarize(Age = paste0(signif(mean(`_Age`), 2), " (", signif(sd(`_Age`), 2), ") %")) %>%
+  pivot_wider(names_from = Run, values_from = Age)%>% write_csv("avg_age_FUNA_mike.csv")
 
 
 finalmap_Full = finalmap %>% filter(Type == "Full")
