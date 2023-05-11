@@ -371,6 +371,14 @@ finalmap %>%
   summarize(Age = paste0(signif(mean(`_Age`), 2), " (", signif(sd(`_Age`), 2), ") %")) %>%
   pivot_wider(names_from = Run, values_from = Age)%>% write_csv("avg_age_FUNA_mike.csv")
 
+finalmap %>%
+  st_drop_geometry() %>%
+  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
+  filter(Type == 'Full') %>%
+  group_by(Run, FUNA) %>%
+  summarize(Age = sum(Shape_Area)) %>%
+  pivot_wider(names_from = Run, values_from = Age)%>% write_csv("FUNA_area_mike.csv")
+
 
 finalmap_Full = finalmap %>% filter(Type == "Full")
 
