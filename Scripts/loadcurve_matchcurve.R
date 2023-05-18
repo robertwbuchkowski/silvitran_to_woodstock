@@ -50,17 +50,17 @@ newPI = newPI %>%
 
 # Add in L2 data if L1 is absent:
 newPI = newPI %>%
-  mutate(L1S1 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S1, L1S1),
-         L1S2 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S2, L1S2),
-         L1S3 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S3, L1S3),
-         L1S4 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S4, L1S4),
-         L1S5 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S5, L1S5),
-         
-         L1PR1 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR1, L1PR1),
-         L1PR2 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR2, L1PR2),
-         L1PR3 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR3, L1PR3),
-         L1PR4 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR4, L1PR4),
-         L1PR5 = ifelse(is.na(L1PR1) & !is.na(L2PR1), L2PR5, L1PR5)) %>%
+  mutate(L1PR1 = ifelse(is.na(L1S1) & !is.na(L2S1), L2PR1, L1PR1),
+         L1PR2 = ifelse(is.na(L1S2) & !is.na(L2S2), L2PR2, L1PR2),
+         L1PR3 = ifelse(is.na(L1S3) & !is.na(L2S3), L2PR3, L1PR3),
+         L1PR4 = ifelse(is.na(L1S4) & !is.na(L2S4), L2PR4, L1PR4),
+         L1PR5 = ifelse(is.na(L1S5) & !is.na(L2S5), L2PR5, L1PR5),
+
+         L1S1 = ifelse(is.na(L1S1) & !is.na(L2S1), L2S1, L1S1),
+         L1S2 = ifelse(is.na(L1S2) & !is.na(L2S2), L2S2, L1S2),
+         L1S3 = ifelse(is.na(L1S3) & !is.na(L2S3), L2S3, L1S3),
+         L1S4 = ifelse(is.na(L1S4) & !is.na(L2S4), L2S4, L1S4),
+         L1S5 = ifelse(is.na(L1S5) & !is.na(L2S5), L2S5, L1S5)) %>%
   select(OBJECTID, contains("L1S"), contains("L1PR"))
 
 
@@ -274,13 +274,46 @@ for(i in 1:length(IDS)){
   print(i)
 }
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial.rds")
+do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial.rds")
+finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
 
 finalmatch_old = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
+
+# Prepare a file output for Mike:
+
+selmatch = finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID, `_Age`, FUNA)
+
+mapforarea = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp")
+
+selmatch = mapforarea %>%
+  left_join(
+    selmatch
+  ) %>%
+  select(OBJECTID, CAT, `_Age`, FUNA, L1FUNA, L2FUNA) %>%
+  mutate(Area = st_area(.))
+
+selmatch2 = selmatch %>% st_drop_geometry()
+
+
+selmatch2 %>%
+  group_by(CAT) %>%
+  summarize(sum(Area)) %>% View()
+
+selmatch2 %>%
+  filter(CAT == "FO" & is.na(FUNA)) %>% View()
+
+selmatch2 %>%
+  rename(L1FUNA_photointerp = L1FUNA,
+         L2FUNA_photointerp = L2FUNA) %>%
+  left_join(
+    yc, by = c("FUNA", "_Age")
+  ) %>% 
+  write_csv("Data/FUNAmatching_yieldcurve.csv")
 
 pdf("Plots/density.pdf")
 finalmatch %>%
