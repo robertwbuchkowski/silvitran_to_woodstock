@@ -278,9 +278,28 @@ do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
+finalmatchL2 = read_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
+
+finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial.rds")
 
 finalmatch_old = read_rds("Data/matchingFUNAage_stand_ignore_L2add.rds")
+
+finalmatch %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID, `_Age`, FUNA)
+
+finalmatchL2 %>%
+  filter(Type == "Full") %>%
+  select(OBJECTID, `_Age`, FUNA) %>%
+  rename(AgeL2 = `_Age`,
+         FUNAL2 = FUNA) %>%
+  full_join(
+    finalmatch %>%
+      filter(Type == "Full") %>%
+      select(OBJECTID, `_Age`, FUNA)
+  ) %>%
+  mutate(TF = FUNAL2 == FUNA) %>%
+  filter(!TF) %>% View()
 
 # Prepare a file output for Mike:
 
@@ -313,7 +332,7 @@ selmatch2 %>%
   left_join(
     yc, by = c("FUNA", "_Age")
   ) %>% 
-  write_csv("Data/FUNAmatching_yieldcurve.csv")
+  write_csv("Data/FUNAmatching_yieldcurve_withoutL2.csv")
 
 pdf("Plots/density.pdf")
 finalmatch %>%
