@@ -189,11 +189,11 @@ IDS = unique(PImatchyc$OBJECTID)
 
 result = vector('list', length = length(IDS))
 
-for(i in 1:length(IDS)){
-  tmp1 = PImatchyc %>%
-    filter(OBJECTID == IDS[i]) %>%
+matchfunction <- function(ii, IDSf = IDS, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
+  tmp1 = PImatchycf %>%
+    filter(OBJECTID == IDSf[ii]) %>%
     full_join(
-      yc2, by = join_by(Species), relationship =
+      yc2f, by = join_by(Species), relationship =
         "many-to-many"
     ) %>%
     filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))
@@ -204,24 +204,24 @@ for(i in 1:length(IDS)){
       group_by(OBJECTID, `_Age`, FUNA) %>%
       summarise(diff = sum(diff), .groups = NULL) %>%
       left_join(
-        yc %>%
+        ycf %>%
           select(`_Age`, FUNA, DTY9) %>%
           ungroup() %>%
-          mutate(diff2 = (DTY9 - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "TPH9_mean"]))^2) %>%
+          mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "TPH9_mean"]))^2) %>%
           select(-DTY9), by = c("_Age", "FUNA")
       ) %>%
       left_join(
-        yc %>%
+        ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "AHT9_mean"]))^2) %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       left_join(
-        yc %>%
+        ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "GMV9_mean"]))^2) %>%
+          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       ) %>% 
       ungroup() %>%
@@ -236,23 +236,23 @@ for(i in 1:length(IDS)){
              dGMV9 = diff3,
              dAHT = diff4)
   }else{ # If there are no species matches, only match volume and density
-    tmp1 = yc %>%
+    tmp1 = yc2f %>%
       select(`_Age`, FUNA, DTY9) %>%
       ungroup() %>%
-      mutate(diff2 = (DTY9 - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "TPH9_mean"]))^2) %>%
+      mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "TPH9_mean"]))^2) %>%
       select(-DTY9)%>%
       full_join(
-        yc %>%
+        ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "GMV9_mean"]))^2) %>%
+          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       )  %>%
       full_join(
-        yc %>%
+        ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjects[PIobjects$OBJECTID == IDS[i], "AHT9_mean"]))^2) %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       mutate(diff2 = rescale01(diff2),
@@ -263,22 +263,28 @@ for(i in 1:length(IDS)){
              dGMV9 = diff3,
              dAHT = diff4) %>%
       mutate(dSpecies = NA) %>%
-      mutate(OBJECTID = IDS[i]) %>%
+      mutate(OBJECTID = IDS[ii]) %>%
       select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9,dAHT, diff_all) %>%
       arrange(diff_all)
-      
+    
   }
-  tmp2 = tmp1 %>% filter(FUNA == Cedric_FUNA %>% filter(OBJECTID == IDS[i]) %>% pull(THEME2)) %>% arrange(diff_all)
+  tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf[ii]) %>% pull(THEME2))) %>% arrange(diff_all)
   
-  result[[i]] = rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA"))
-  print(i)
+  return(rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA")))
 }
+
+matchfunction(ii = 655)
 
 do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
 
 # Load back in the final matches and plot them:
 
 finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
+
+finalmatch %>%
+  left_join(
+    PIobjects
+  ) %>% View()
 
 # Prepare a file output for Mike:
 
