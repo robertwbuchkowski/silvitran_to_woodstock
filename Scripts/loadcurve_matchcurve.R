@@ -3,6 +3,7 @@
 # Library
 library(sf)
 library(tidyverse)
+library(parallel)
 
 # Load in the yield curves:
 LF = list.files("YieldCurves", recursive = T)
@@ -170,58 +171,68 @@ newPI = newPI %>%
 
 # Use the mean GMV9 for the fit by species:
 PImatchyc = newPI %>%
-  left_join(
-    PIobjects
-  ) %>%
-  mutate(GMV9 = GMV9_mean*value) %>%
-  select(OBJECTID, Species, GMV9)
+  rename(Prop_species_PI = value)
+
+# %>%
+#   left_join(
+#     PIobjects
+#   ) %>%
+#   mutate(GMV9 = GMV9_mean*value) %>%
+#   select(OBJECTID, Species, GMV9)
+
+# yc2 = yc %>% 
+#   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
+#   pivot_longer(!`_Age` & !FUNA) %>%
+#   separate(name, into = c("Species", NA), sep = -1)
 
 yc2 = yc %>% 
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
   pivot_longer(!`_Age` & !FUNA) %>%
-  separate(name, into = c("Species", NA), sep = -1)
-
-rescale01 <- function(X){
-  (X - min(X, na.rm = T))/(max(X, na.rm = T) - min(X, na.rm = T))
-}
+  separate(name, into = c("Species", NA), sep = -1) %>%
+  group_by(`_Age`, FUNA) %>%
+  mutate(Prop_species = value/sum(value)) %>%
+  ungroup() %>%
+  mutate(Prop_species_yc = replace_na(Prop_species, 0))
 
 IDS = unique(PImatchyc$OBJECTID)
 
-result = vector('list', length = length(IDS))
-
-matchfunction <- function(ii, IDSf = IDS, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
+matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
   tmp1 = PImatchycf %>%
-    filter(OBJECTID == IDSf[ii]) %>%
+    filter(OBJECTID == IDSf) %>%
     full_join(
       yc2f, by = join_by(Species), relationship =
         "many-to-many"
     ) %>%
     filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))
   
+  rescale01 <- function(X){
+    (X - min(X, na.rm = T))/(max(X, na.rm = T) - min(X, na.rm = T))
+  }
+  
   if(dim(tmp1)[1] > 0){ # If there is a species match, go forward with it
     tmp1 = tmp1 %>%
-      mutate(diff = (GMV9 - value)^2) %>%
+      mutate(diff = (Prop_species_PI - Prop_species_yc)^2) %>%
       group_by(OBJECTID, `_Age`, FUNA) %>%
       summarise(diff = sum(diff), .groups = NULL) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, DTY9) %>%
           ungroup() %>%
-          mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "TPH9_mean"]))^2) %>%
+          mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
           select(-DTY9), by = c("_Age", "FUNA")
       ) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "AHT9_mean"]))^2) %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "GMV9_mean"]))^2) %>%
+          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       ) %>% 
       ungroup() %>%
@@ -239,20 +250,20 @@ matchfunction <- function(ii, IDSf = IDS, PImatchycf = PImatchyc, yc2f = yc2, yc
     tmp1 = yc2f %>%
       select(`_Age`, FUNA, DTY9) %>%
       ungroup() %>%
-      mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "TPH9_mean"]))^2) %>%
+      mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
       select(-DTY9)%>%
       full_join(
         ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "GMV9_mean"]))^2) %>%
+          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       )  %>%
       full_join(
         ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf[ii], "AHT9_mean"]))^2) %>%
+          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       mutate(diff2 = rescale01(diff2),
@@ -263,23 +274,30 @@ matchfunction <- function(ii, IDSf = IDS, PImatchycf = PImatchyc, yc2f = yc2, yc
              dGMV9 = diff3,
              dAHT = diff4) %>%
       mutate(dSpecies = NA) %>%
-      mutate(OBJECTID = IDS[ii]) %>%
+      mutate(OBJECTID = IDS) %>%
       select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9,dAHT, diff_all) %>%
       arrange(diff_all)
     
   }
-  tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf[ii]) %>% pull(THEME2))) %>% arrange(diff_all)
+  tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf) %>% pull(THEME2))) %>% arrange(diff_all)
   
   return(rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA")))
 }
 
-matchfunction(ii = 655)
+matchfunction(IDSf = 3)
 
-do.call("rbind", result) %>% write_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
+
+cl = makeCluster(15)
+clusterEvalQ(cl, library(dplyr))
+clusterExport(cl=cl, varlist=c("PImatchyc","yc2","yc", "PIobjects", "Cedric_FUNA"))
+cors = parLapply(cl, IDS, matchfunction, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA)
+stopCluster(cl)
+
+do.call("rbind", cors) %>% write_rds("Data/matchingFUNAage_propcover_volume_height_wL2.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_volume_height_trial_wL2.rds")
+finalmatch = read_rds("Data/matchingFUNAage_propcover_volume_height_wL2.rds")
 
 finalmatch %>%
   left_join(
@@ -318,6 +336,8 @@ selmatch2 %>%
     yc, by = c("FUNA", "_Age")
   ) %>% 
   write_csv("Data/FUNAmatching_yieldcurve_height_withL2.csv")
+
+hist(selmatch2$`_Age`)
 
 pdf("Plots/density.pdf")
 finalmatch %>%
