@@ -196,6 +196,48 @@ yc2 = yc %>%
 
 IDS = unique(PImatchyc$OBJECTID)
 
+
+PImatchyc %>%
+  filter(OBJECTID == 2) %>%
+  full_join(
+    yc2, by = join_by(Species), relationship =
+      "many-to-many"
+  ) %>%
+  filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))%>%
+  mutate(diff = (Prop_species_PI - Prop_species_yc)^2) %>%
+  group_by(OBJECTID, `_Age`, FUNA) %>%
+  summarise(diff = sum(diff), .groups = NULL) %>%
+  left_join(
+    newPI %>%
+      left_join(
+        PIobjects
+      ) %>%
+      mutate(GMV9 = GMV9_mean*value) %>%
+      select(OBJECTID, Species, GMV9) %>%
+      filter(OBJECTID == 2) %>%
+      full_join(
+        yc %>% 
+          select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
+          pivot_longer(!`_Age` & !FUNA) %>%
+          separate(name, into = c("Species", NA), sep = -1), by = join_by(Species), relationship =
+          "many-to-many"
+      ) %>%
+      filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))%>%
+      mutate(diff = (GMV9 - value)^2) %>%
+      group_by(OBJECTID, `_Age`, FUNA) %>%
+      summarise(diffvol = sum(diff), .groups = NULL) 
+  ) %>% 
+  filter(diff < 0.07) %>%
+  ggplot(aes(x = diff, y = diffvol)) + geom_label(aes(label = FUNA, color = `_Age`))
+
+
+
+
+
+
+
+
+
 matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
   tmp1 = PImatchycf %>%
     filter(OBJECTID == IDSf) %>%
@@ -329,16 +371,28 @@ selmatch2 %>%
 selmatch2 %>%
   filter(CAT == "FO" & is.na(FUNA)) %>% View()
 
-selmatch2 %>%
+selmatch2 = selmatch2 %>%
   rename(L1FUNA_photointerp = L1FUNA,
          L2FUNA_photointerp = L2FUNA) %>%
   left_join(
     yc, by = c("FUNA", "_Age")
-  ) %>% 
+  ) 
+
+selmatch2 %>% 
   write_csv("Data/FUNAmatching_yieldcurve_height_withL2.csv")
 
 hist(selmatch2$`_Age`)
 
+
+selmatch2 %>% select(OBJECTID, Area, contains("v") & !VOLtot) %>%
+  pivot_longer(!OBJECTID & !Area) %>%
+  group_by(name) %>%
+  mutate(value = value/Area) %>%
+  summarize(tot = sum(value, na.rm = T)) %>%
+  mutate(tot = tot/sum(tot))
+
+
+  
 pdf("Plots/density.pdf")
 finalmatch %>%
   mutate(Run = "Density") %>%
