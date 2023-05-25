@@ -23,6 +23,23 @@ for(i in 1:length(LF)){
 yc = do.call("rbind", yc) %>%
   pivot_wider(values_fill = 0) # This is OK because we are filling in missing species with zero volume
 
+
+# Calculate the locations on the yield curves where there are between 25% and 75% softwood trees:
+
+yc %>%
+  select(`_Age`, FUNA, contains("v") & !VOLtot) %>%
+  pivot_longer(!`_Age`&!FUNA) %>%
+  separate(name, into = c("name", NA), sep = -1) %>%
+  left_join(
+    read_csv("C:/Users/rober/Documents/GitHubRepos/occupancy_exploration/Data/SPcodeHWSW.csv") %>% select(-Name), by = c("name" = "SpeciesCode")) %>%
+  group_by(`_Age`, FUNA, Type) %>%
+  summarize(value = sum(value)) %>%
+  mutate(Prop = replace_na(value/sum(value), 0)) %>%
+  select(-value) %>%
+  filter(Type == "SW" & Prop > 0.25 & Prop < 0.75) %>%
+  select(-Type) %>% rename(`Proportion softwood by volume` = Prop) %>%
+  write_csv("ResultsData/FUNA_prop_softwood.csv")
+
 # Get the landscape data ----
 
 PIobjects = read_rds("Data/LiDAR_extracts_PI.rds")
@@ -173,18 +190,6 @@ newPI = newPI %>%
 PImatchyc = newPI %>%
   rename(Prop_species_PI = value)
 
-# %>%
-#   left_join(
-#     PIobjects
-#   ) %>%
-#   mutate(GMV9 = GMV9_mean*value) %>%
-#   select(OBJECTID, Species, GMV9)
-
-# yc2 = yc %>% 
-#   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
-#   pivot_longer(!`_Age` & !FUNA) %>%
-#   separate(name, into = c("Species", NA), sep = -1)
-
 yc2 = yc %>% 
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
   pivot_longer(!`_Age` & !FUNA) %>%
@@ -197,6 +202,7 @@ yc2 = yc %>%
 IDS = unique(PImatchyc$OBJECTID)
 
 
+# Compare matching by proportion cover and by volume comparison
 PImatchyc %>%
   filter(OBJECTID == 2) %>%
   full_join(
@@ -231,13 +237,6 @@ PImatchyc %>%
   ggplot(aes(x = diff, y = diffvol)) + geom_label(aes(label = FUNA, color = `_Age`))
 
 
-
-
-
-
-
-
-
 matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
   tmp1 = PImatchycf %>%
     filter(OBJECTID == IDSf) %>%
@@ -253,77 +252,72 @@ matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PI
   
   if(dim(tmp1)[1] > 0){ # If there is a species match, go forward with it
     tmp1 = tmp1 %>%
-      mutate(diff = (Prop_species_PI - Prop_species_yc)^2) %>%
+      mutate(dSpecies = (Prop_species_PI - Prop_species_yc)^2) %>%
       group_by(OBJECTID, `_Age`, FUNA) %>%
-      summarise(diff = sum(diff), .groups = NULL) %>%
+      summarise(dSpecies = sum(dSpecies), .groups = NULL) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, DTY9) %>%
           ungroup() %>%
-          mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
+          mutate(dTHP9 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
           select(-DTY9), by = c("_Age", "FUNA")
       ) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
+          mutate(dAHT = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
       left_join(
         ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
+          mutate(dGMV9 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       ) %>% 
       ungroup() %>%
-      mutate(diff = rescale01(diff),
-             diff2 = rescale01(diff2),
-             diff4 = rescale01(diff4),
-             diff3 = rescale01(diff3)) %>%
-      mutate(diff_all = diff + diff4 + diff3) %>% # Excluding density match here
-      arrange(diff_all) %>%
-      rename(dSpecies = diff,
-             dTHP9 = diff2,
-             dGMV9 = diff3,
-             dAHT = diff4)
+      mutate(dSpecies = rescale01(dSpecies),
+             dTHP9 = rescale01(dTHP9),
+             dAHT = rescale01(dAHT),
+             dGMV9 = rescale01(dGMV9)) %>%
+      mutate(diff_all = dSpecies*2 + dGMV9 + dTHP9) %>% # Excluding density match here
+      arrange(diff_all)
   }else{ # If there are no species matches, only match volume and density
     tmp1 = yc2f %>%
       select(`_Age`, FUNA, DTY9) %>%
       ungroup() %>%
-      mutate(diff2 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
+      mutate(dTHP9 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
       select(-DTY9)%>%
       full_join(
         ycf %>%
           select(`_Age`, FUNA, VOLtot) %>%
           ungroup() %>%
-          mutate(diff3 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
+          mutate(dGMV9 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
           select(-VOLtot), by = c("_Age", "FUNA")
       )  %>%
       full_join(
         ycf %>%
           select(`_Age`, FUNA, HGTmerch) %>%
           ungroup() %>%
-          mutate(diff4 = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
+          mutate(dAHT = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
           select(-HGTmerch), by = c("_Age", "FUNA")
       ) %>%
-      mutate(diff2 = rescale01(diff2),
-             diff3 = rescale01(diff3),
-             diff4 = rescale01(diff4))%>%
-      mutate(diff_all = diff4 + diff3) %>%
-      rename(dTHP9 = diff2,
-             dGMV9 = diff3,
-             dAHT = diff4) %>%
+      mutate(dTHP9 = rescale01(dTHP9),
+             dGMV9 = rescale01(dGMV9),
+             dAHT = rescale01(diff4))%>%
+      mutate(diff_all = dGMV9 + dTHP9) %>%
       mutate(dSpecies = NA) %>%
       mutate(OBJECTID = IDS) %>%
       select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9,dAHT, diff_all) %>%
       arrange(diff_all)
     
   }
-  tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf) %>% pull(THEME2))) %>% arrange(diff_all)
+  # tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf) %>% pull(THEME2))) %>% arrange(diff_all)
+  # 
+  # return(rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA")))
   
-  return(rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA")))
+  return(tmp1[1,])
 }
 
 matchfunction(IDSf = 3)
@@ -335,21 +329,27 @@ clusterExport(cl=cl, varlist=c("PImatchyc","yc2","yc", "PIobjects", "Cedric_FUNA
 cors = parLapply(cl, IDS, matchfunction, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("Data/matchingFUNAage_propcover_volume_height_wL2.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_spx2_vol_density.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("Data/matchingFUNAage_propcover_volume_height_wL2.rds")
+finalmatch = read_rds("ResultsData/matches/matchingFUNAage_spx2_vol_density.rds")
 
-finalmatch %>%
-  left_join(
-    PIobjects
-  ) %>% View()
+
+# Compare fits for the different versions:
+
+LF = list.files("ResultsData/matches/")
+
+do.call("rbind",lapply(1:length(LF), function(x) read_rds(paste0("ResultsData/matches/",LF[x])) %>% mutate(fit = LF[x]))) %>%
+  group_by(fit) %>%
+  summarise(dSpecies = sum(dSpecies),
+            dTHP9     = sum(dTHP9),
+            dAHT     = sum(dAHT),
+            dGMV9 = sum(dGMV9))
 
 # Prepare a file output for Mike:
 
 selmatch = finalmatch %>%
-  filter(Type == "Full") %>%
   select(OBJECTID, `_Age`, FUNA)
 
 mapforarea = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp")
@@ -366,10 +366,10 @@ selmatch2 = selmatch %>% st_drop_geometry()
 
 selmatch2 %>%
   group_by(CAT) %>%
-  summarize(sum(Area)) %>% View()
+  summarize(sum(Area))
 
 selmatch2 %>%
-  filter(CAT == "FO" & is.na(FUNA)) %>% View()
+  filter(CAT == "FO" & is.na(FUNA))
 
 selmatch2 = selmatch2 %>%
   rename(L1FUNA_photointerp = L1FUNA,
@@ -377,9 +377,6 @@ selmatch2 = selmatch2 %>%
   left_join(
     yc, by = c("FUNA", "_Age")
   ) 
-
-selmatch2 %>% 
-  write_csv("Data/FUNAmatching_yieldcurve_height_withL2.csv")
 
 hist(selmatch2$`_Age`)
 
@@ -391,6 +388,19 @@ selmatch2 %>% select(OBJECTID, Area, contains("v") & !VOLtot) %>%
   summarize(tot = sum(value, na.rm = T)) %>%
   mutate(tot = tot/sum(tot))
 
+selmatch2 %>%
+  filter(!is.na(FUNA)) %>%
+  mutate(Periods = ifelse(`_Age`*5 < 25, "0-25",
+                          ifelse(`_Age`*5 > 75, "75+", 
+                                 ifelse(`_Age`*5 > 25 & `_Age`*5 < 50, "25-50", "50-75")))) %>%
+  group_by(FUNA, Periods) %>%
+  mutate(Area = as.numeric(Area)/10000) %>%
+  summarize(Area = sum(Area)) %>%
+  pivot_wider(names_from = FUNA, values_from = Area, values_fill = 0)
+  
+
+selmatch2 %>% 
+  write_csv("Data/FUNAmatching_yieldcurve_height_withL2.csv")
 
   
 pdf("Plots/density.pdf")
