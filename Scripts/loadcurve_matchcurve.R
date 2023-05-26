@@ -201,42 +201,6 @@ yc2 = yc %>%
 
 IDS = unique(PImatchyc$OBJECTID)
 
-
-# Compare matching by proportion cover and by volume comparison
-PImatchyc %>%
-  filter(OBJECTID == 2) %>%
-  full_join(
-    yc2, by = join_by(Species), relationship =
-      "many-to-many"
-  ) %>%
-  filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))%>%
-  mutate(diff = (Prop_species_PI - Prop_species_yc)^2) %>%
-  group_by(OBJECTID, `_Age`, FUNA) %>%
-  summarise(diff = sum(diff), .groups = NULL) %>%
-  left_join(
-    newPI %>%
-      left_join(
-        PIobjects
-      ) %>%
-      mutate(GMV9 = GMV9_mean*value) %>%
-      select(OBJECTID, Species, GMV9) %>%
-      filter(OBJECTID == 2) %>%
-      full_join(
-        yc %>% 
-          select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
-          pivot_longer(!`_Age` & !FUNA) %>%
-          separate(name, into = c("Species", NA), sep = -1), by = join_by(Species), relationship =
-          "many-to-many"
-      ) %>%
-      filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))%>%
-      mutate(diff = (GMV9 - value)^2) %>%
-      group_by(OBJECTID, `_Age`, FUNA) %>%
-      summarise(diffvol = sum(diff), .groups = NULL) 
-  ) %>% 
-  filter(diff < 0.07) %>%
-  ggplot(aes(x = diff, y = diffvol)) + geom_label(aes(label = FUNA, color = `_Age`))
-
-
 matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
   tmp1 = PImatchycf %>%
     filter(OBJECTID == IDSf) %>%
@@ -281,7 +245,7 @@ matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PI
              dTHP9 = rescale01(dTHP9),
              dAHT = rescale01(dAHT),
              dGMV9 = rescale01(dGMV9)) %>%
-      mutate(diff_all = dSpecies*2 + dGMV9 + dTHP9) %>% # Excluding density match here
+      mutate(diff_all = dSpecies + dGMV9 + dTHP9) %>% # Excluding density match here
       arrange(diff_all)
   }else{ # If there are no species matches, only match volume and density
     tmp1 = yc2f %>%
@@ -329,11 +293,11 @@ clusterExport(cl=cl, varlist=c("PImatchyc","yc2","yc", "PIobjects", "Cedric_FUNA
 cors = parLapply(cl, IDS, matchfunction, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_spx2_vol_density.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matchingFUNAage_spx2_vol_density.rds")
+finalmatch = read_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
 
 
 # Compare fits for the different versions:
@@ -400,7 +364,7 @@ selmatch2 %>%
   
 
 selmatch2 %>% 
-  write_csv("Data/FUNAmatching_yieldcurve_height_withL2.csv")
+  write_csv("Data/FUNAmatching_yieldcurve_sp_vol_density.csv")
 
   
 pdf("Plots/density.pdf")
