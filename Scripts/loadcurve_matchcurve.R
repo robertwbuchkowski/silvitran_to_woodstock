@@ -88,6 +88,12 @@ newPI = newPI %>%
   select(OBJECTID, contains("L1S"))%>%
   pivot_longer(-OBJECTID, values_to = "Species") %>%
   separate(name, into = c(NA, "name"), sep = -1) %>%
+  # Add in softwood and hardwood identifiers:
+  left_join(
+    read_csv("Data/SPcodeHWSW.csv") %>% select(-Name), by = c("Species" = "SpeciesCode")
+  ) %>%
+  select(-Species) %>%
+  rename(Species = Type) %>%
   full_join(
     newPI %>%
       select(OBJECTID, contains("L1PR"))%>%
@@ -109,207 +115,81 @@ newPI %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %
 # Check if all the OBJECTIDs are in both data sets:
 all(unique(newPI$OBJECTID) %in% Cedric_FUNA$OBJECTID)
 
-# Calculate the proportion of species by cover:
-
-coverprops = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area) %>%
-  full_join(
-    newPI, by = "OBJECTID"
-  ) %>%
-  mutate(value = value*Shape_Area) %>%
-  group_by(Species) %>%
-  summarize(value = sum(value, na.rm = T)) %>%
-  mutate(value = value/sum(value, na.rm = T)) %>%
-  arrange(value) %>% print(n = Inf)
-
-# Break up the species codes into matches for the yield curve:
-
-# Yield curve species:
-c((yc %>% select(contains("v"), -VOLtot) %>% colnames() %>% str_split("v", simplify = T))[,1])
-
-# PO becomes TA
-# BI becomes WB?
-# IH becomes TA, WB?
-# FS becomes 75% BF and 25% RS/BS
-# SW becomes ???
-# HW becomes ???
-# PI becomes WP, RP, JP?
-# SF becomes 75% RS/BS and 25% BF
-# NC is removed
-# OH becomes RO, YB
-# OS becomes EC, EH
-# AL is removed
-# BE is removed
-# DS is removed
-# DF is removed
-# GB is removed
-# IR is removed
-# BC is removed
-# SP becomes RS/WS
-# AS is removed
-# BH is removed
-
-# Next need to code the matching! The code needs to add up all the relevant species unless they are recorded elsewhere in the stand. Need to figure out how to deal with that part...
-
-unmatchedspecies = unique(newPI$Species)[!(unique(newPI$Species) %in% c((yc %>% select(contains("v"), -VOLtot) %>% colnames() %>% str_split("v", simplify = T))[,1]))]
-
-table(newPI$Species) %>%
-  data.frame() %>%
-  filter(Var1 %in% unmatchedspecies) %>%
-  arrange(-Freq)
-
-rm(unmatchedspecies)
-
-# Convert the group or unmatched species that are at high frequency to species in Anthony's model:
 newPI = newPI %>%
+  rename(totvalue = value)
+
+# Calculate the percent softwood for each OBJECTID:
+
+PIempirical = PIobjects %>%
+  select(OBJECTID, GMV9_mean, TPH9_mean, AHT9_mean) %>%
   left_join(
-    readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
-      select(-Allocation1, - Allocation) %>%
-      pivot_wider(names_from = `Species Code`, values_from = Allocation_Mike, values_fill = 0), by = c("Species" = "Group Code")
-  ) 
-
-readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
-  group_by(`Group Code`) %>%
-  summarise(Allocation = sum(Allocation_Mike)) %>% pull(Allocation) %>% unique()
-
-newPI %>% filter(is.na(TA)) %>% pull(Species) %>% unique() # All these are codes we are OK getting rid of
-
-newPI = newPI %>%
-  rename(totvalue = value) %>%
-  pivot_longer(!OBJECTID & !Species & !totvalue) %>%
-  filter(value > 0) %>%
-  mutate(value = totvalue*value/100) %>% # Calculate the new percentage
-  select(-Species, -totvalue) %>%
-  rename(Species = name)
-
-# GMV9 matches with volume in Anthony curves
-# TPH0 matches with DTY9 in Antony curves
-
-# Use the mean GMV9 for the fit by species:
-PImatchyc = newPI %>%
-  rename(Prop_species_PI = value)
+    newPI %>% filter(Species == "SW") %>% select(-Species), by = c("OBJECTID")
+  ) %>% 
+  mutate(Prop_SW_PI = replace_na(totvalue, 0)) %>%
+  select(-totvalue)
 
 yc2 = yc %>% 
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
   pivot_longer(!`_Age` & !FUNA) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
+  left_join(
+    read_csv("Data/SPcodeHWSW.csv") %>% select(-Name), by = c("Species" = "SpeciesCode")
+  ) %>% 
+  group_by(`_Age`, FUNA, Type) %>%
+  summarize(value = sum(value)) %>%
   group_by(`_Age`, FUNA) %>%
-  mutate(Prop_species = value/sum(value)) %>%
-  ungroup() %>%
-  mutate(Prop_species_yc = replace_na(Prop_species, 0))
+  mutate(Prop_SW = value/sum(value)) %>%
+  filter(Type == "SW") %>%
+  ungroup()
 
-IDS = unique(PImatchyc$OBJECTID)
+yctheoretical
 
-matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA){
-  tmp1 = PImatchycf %>%
-    filter(OBJECTID == IDSf) %>%
-    full_join(
-      yc2f, by = join_by(Species), relationship =
-        "many-to-many"
-    ) %>%
-    filter(!is.na(FUNA)) %>% filter(!is.na(OBJECTID))
+yc2 = yc %>%
+  select(`_Age`, FUNA, DTY9, HGTmerch, VOLtot) %>%
+  left_join(
+    yc2,by = join_by(`_Age`, FUNA)
+  ) %>%
+  select(-Type, -value) %>%
+  mutate(Prop_SW = replace_na(Prop_SW, 0))
+
+
+IDS = unique(PIempirical$OBJECTID)
+
+matchfunction <- function(IDSf, empdata = PIempirical, ycdata = yc2){
   
   rescale01 <- function(X){
     (X - min(X, na.rm = T))/(max(X, na.rm = T) - min(X, na.rm = T))
   }
   
-  if(dim(tmp1)[1] > 0){ # If there is a species match, go forward with it
-    tmp1 = tmp1 %>%
-      mutate(dSpecies = (Prop_species_PI - Prop_species_yc)^2) %>%
-      group_by(OBJECTID, `_Age`, FUNA) %>%
-      summarise(dSpecies = sum(dSpecies), .groups = NULL) %>%
-      left_join(
-        ycf %>%
-          select(`_Age`, FUNA, DTY9) %>%
-          ungroup() %>%
-          mutate(dTHP9 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
-          select(-DTY9), by = c("_Age", "FUNA")
-      ) %>%
-      left_join(
-        ycf %>%
-          select(`_Age`, FUNA, HGTmerch) %>%
-          ungroup() %>%
-          mutate(dAHT = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
-          select(-HGTmerch), by = c("_Age", "FUNA")
-      ) %>%
-      left_join(
-        ycf %>%
-          select(`_Age`, FUNA, VOLtot) %>%
-          ungroup() %>%
-          mutate(dGMV9 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
-          select(-VOLtot), by = c("_Age", "FUNA")
-      ) %>% 
-      ungroup() %>%
-      mutate(dSpecies = rescale01(dSpecies),
-             dTHP9 = rescale01(dTHP9),
-             dAHT = rescale01(dAHT),
-             dGMV9 = rescale01(dGMV9)) %>%
-      mutate(diff_all = dSpecies + dGMV9 + dTHP9) %>% # Excluding density match here
-      arrange(diff_all)
-  }else{ # If there are no species matches, only match volume and density
-    tmp1 = yc2f %>%
-      select(`_Age`, FUNA, DTY9) %>%
-      ungroup() %>%
-      mutate(dTHP9 = (DTY9 - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "TPH9_mean"]))^2) %>%
-      select(-DTY9)%>%
-      full_join(
-        ycf %>%
-          select(`_Age`, FUNA, VOLtot) %>%
-          ungroup() %>%
-          mutate(dGMV9 = (VOLtot - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "GMV9_mean"]))^2) %>%
-          select(-VOLtot), by = c("_Age", "FUNA")
-      )  %>%
-      full_join(
-        ycf %>%
-          select(`_Age`, FUNA, HGTmerch) %>%
-          ungroup() %>%
-          mutate(dAHT = (HGTmerch - pull(PIobjectsf[PIobjectsf$OBJECTID == IDSf, "AHT9_mean"]))^2) %>%
-          select(-HGTmerch), by = c("_Age", "FUNA")
-      ) %>%
-      mutate(dTHP9 = rescale01(dTHP9),
-             dGMV9 = rescale01(dGMV9),
-             dAHT = rescale01(diff4))%>%
-      mutate(diff_all = dGMV9 + dTHP9) %>%
-      mutate(dSpecies = NA) %>%
-      mutate(OBJECTID = IDS) %>%
-      select(OBJECTID, `_Age`, FUNA,   dSpecies,dTHP9,dGMV9,dAHT, diff_all) %>%
-      arrange(diff_all)
-    
-  }
-  # tmp2 = tmp1 %>% filter(FUNA == (Cedric_FUNAf %>% filter(OBJECTID == IDSf) %>% pull(THEME2))) %>% arrange(diff_all)
-  # 
-  # return(rbind(tmp1[1,], tmp2[1,]) %>% mutate(Type = c("Full", "FUNA")))
+  empdata2 = empdata %>%
+    filter(OBJECTID == IDSf)
   
-  return(tmp1[1,])
+  if(dim(empdata2)[1] >1) stop("Repeated OBJECTID")
+  
+  yc2 %>%
+    mutate(dvol = rescale01((VOLtot - empdata2$GMV9_mean)^2),
+           dsw = rescale01((Prop_SW - empdata2$Prop_SW_PI)^2),
+           dheight = rescale01((HGTmerch - empdata2$AHT9_mean)^2)) %>%
+    mutate(diffall = dvol + dsw + dheight) %>%
+    slice_min(diffall) %>%
+    mutate(OBJECTID = IDSf)
+  
 }
 
-matchfunction(IDSf = 3)
+matchfunction(IDSf = 5)
 
 
 cl = makeCluster(15)
 clusterEvalQ(cl, library(dplyr))
-clusterExport(cl=cl, varlist=c("PImatchyc","yc2","yc", "PIobjects", "Cedric_FUNA"))
-cors = parLapply(cl, IDS, matchfunction, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA)
+clusterExport(cl=cl, varlist=c("PIempirical","yc2"))
+cors = parLapply(cl, IDS, matchfunction, empdata = PIempirical, ycdata = yc2)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_height.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
-
-
-# Compare fits for the different versions:
-
-LF = list.files("ResultsData/matches/")
-
-do.call("rbind",lapply(1:length(LF), function(x) read_rds(paste0("ResultsData/matches/",LF[x])) %>% mutate(fit = LF[x]))) %>%
-  group_by(fit) %>%
-  summarise(dSpecies = sum(dSpecies),
-            dTHP9     = sum(dTHP9),
-            dAHT     = sum(dAHT),
-            dGMV9 = sum(dGMV9))
+finalmatch = read_rds("ResultsData/matches/matching_SW_vol_height.rds")
 
 # Prepare a file output for Mike:
 
