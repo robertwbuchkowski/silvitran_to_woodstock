@@ -191,6 +191,23 @@ do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_height
 
 finalmatch = read_rds("ResultsData/matches/matching_SW_vol_height.rds")
 
+
+read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
+  select(OBJECTID) %>%
+  left_join(
+    finalmatch
+  ) %>%
+  select(OBJECTID, VOLtot, Prop_SW, HGTmerch, DTY9) %>%
+  left_join(
+    PIempirical
+  ) %>%
+  mutate(Area = as.numeric(st_area(.))/10000) %>%
+  st_drop_geometry() %>%
+  pivot_longer(!OBJECTID & !Area) %>%
+  mutate(value = value*Area) %>%
+  group_by(name) %>%
+  summarize(value = mean(value))
+
 # Prepare a file output for Mike:
 
 selmatch = finalmatch %>%
@@ -244,7 +261,7 @@ selmatch2 %>%
   
 
 selmatch2 %>% 
-  write_csv("Data/FUNAmatching_yieldcurve_sp_vol_density.csv")
+  write_csv("Data/FUNAmatching_yieldcurve_SW_vol_density.csv")
 
   
 pdf("Plots/density.pdf")
