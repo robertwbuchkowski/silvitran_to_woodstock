@@ -228,12 +228,26 @@ matchfunction <- function(IDSf,mdata = matching_data){
   
   if(dim(empdata2)[1] >1) stop("Repeated OBJECTID")
   
-  matching_data$YCempirical %>%
+  temp1 = matching_data$YCempirical %>%
     mutate(dvol = rescale01((VOLtot - empdata2$GMV9_mean)^2),
            dsw = rescale01((Prop_SW - empdata2$Prop_SW_PI)^2),
            dheight = rescale01((HGTmerch - empdata2$AHT9_mean)^2),
-           ddensity = rescale01((DTY9 - empdata2$TPH9_mean)^2)) %>%
-    mutate(diffall = dvol + dsw + ddensity) %>%
+           ddensity = rescale01((DTY9 - empdata2$TPH9_mean)^2))
+  
+  temp1 = temp1 %>%
+    left_join(
+      matching_data$YCspecies %>%
+        right_join(
+          matching_data$PIspecies %>%
+            filter(OBJECTID == 1), relationship = "many-to-many",by = join_by(Species)
+        ) %>%
+        mutate(dSpecies = (Prop_species_yc - Prop_species_PI)^2) %>%
+        group_by(`_Age`, FUNA) %>%
+        summarise(dSpecies = sum(dSpecies),.groups = "drop"), by = c("_Age", "FUNA")
+    ) %>% mutate(dSpecies = replace_na(dSpecies,0))
+  
+  temp1 %>% 
+    mutate(diffall = dvol + dsw + dSpecies) %>%
     slice_min(diffall) %>%
     mutate(OBJECTID = IDSf)
   
@@ -241,18 +255,18 @@ matchfunction <- function(IDSf,mdata = matching_data){
 
 matchfunction(IDSf = 5)
 
-
 cl = makeCluster(15)
 clusterEvalQ(cl, library(dplyr))
+clusterEvalQ(cl, library(tidyr))
 clusterExport(cl=cl, varlist=c("matching_data"))
 cors = parLapply(cl, IDS, matchfunction,mdata = matching_data)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_density.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_dSpecies.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matching_SW_vol_density.rds")
+finalmatch = read_rds("ResultsData/matches/matching_SW_vol_dSpecies.rds")
 
 
 read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
@@ -262,7 +276,7 @@ read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2
   ) %>%
   select(OBJECTID, VOLtot, Prop_SW, HGTmerch, DTY9) %>%
   left_join(
-    PIempirical
+    matching_data$PIempirical
   ) %>%
   mutate(Area = as.numeric(st_area(.))/10000) %>%
   st_drop_geometry() %>%
@@ -324,7 +338,7 @@ selmatch2 %>%
   
 
 selmatch2 %>% 
-  write_csv("Data/FUNAmatching_yieldcurve_SW_vol_density.csv")
+  write_csv("Data/FUNAmatching_yieldcurve_SW_vol_species.csv")
 
   
 pdf("Plots/density.pdf")
