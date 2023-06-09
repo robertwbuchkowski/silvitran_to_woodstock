@@ -84,9 +84,14 @@ newPI = newPI %>%
   select(OBJECTID, contains("L1S"), contains("L1PR"))
 
 
+# Build the datasets for matching:
+
+matching_data = vector("list", 4)
+names(matching_data) = c("PIempirical", "PIspecies", "YCempirical", "YCspecies")
+
 
 # Calculate the proportion of softwood by OBJECTID:
-newPI_softwood = newPI %>%
+matching_data$PIempirical = newPI %>%
   select(OBJECTID, contains("L1S"))%>%
   pivot_longer(-OBJECTID, values_to = "Species") %>%
   separate(name, into = c(NA, "name"), sep = -1) %>%
@@ -112,17 +117,27 @@ newPI_softwood = newPI %>%
   group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
   summarise(value = sum(value))
 
-newPI_softwood %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
+matching_data$PIempirical %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
 
 # Check if all the OBJECTIDs are in both data sets:
-all(unique(newPI_softwood$OBJECTID) %in% Cedric_FUNA$OBJECTID)
+all(unique(matching_data$PIempirical$OBJECTID) %in% Cedric_FUNA$OBJECTID)
 
-newPI_softwood = newPI_softwood %>%
+matching_data$PIempirical = matching_data$PIempirical %>%
   rename(totvalue = value)
+
+# Calculate the percent softwood for each OBJECTID:
+
+matching_data$PIempirical = PIobjects %>%
+  select(OBJECTID, GMV9_mean, TPH9_mean, AHT9_mean) %>%
+  left_join(
+    matching_data$PIempirical %>% filter(Species == "SW") %>% select(-Species), by = c("OBJECTID")
+  ) %>% 
+  mutate(Prop_SW_PI = replace_na(totvalue, 0)) %>%
+  select(-totvalue)
 
 
 # Calculate the proportion of species cover by OBJECTID:
-newPI_species = newPI %>%
+matching_data$PIspecies = newPI %>%
   select(OBJECTID, contains("L1S"))%>%
   pivot_longer(-OBJECTID, values_to = "Species") %>%
   separate(name, into = c(NA, "name"), sep = -1) %>%
@@ -142,25 +157,32 @@ newPI_species = newPI %>%
   group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
   summarise(value = sum(value))
 
-newPI_species %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
+matching_data$PIspecies %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
 
 # Check if all the OBJECTIDs are in both data sets:
 all(unique(newPI_species$OBJECTID) %in% Cedric_FUNA$OBJECTID)
 
-newPI_species = newPI_species %>%
-  rename(totvalue = value)
-
-# Calculate the percent softwood for each OBJECTID:
-
-PIempirical = PIobjects %>%
-  select(OBJECTID, GMV9_mean, TPH9_mean, AHT9_mean) %>%
+# Convert the group or unmatched species that are at high frequency to species in Anthony's model:
+matching_data$PIspecies = matching_data$PIspecies %>%
   left_join(
-    newPI_softwood %>% filter(Species == "SW") %>% select(-Species), by = c("OBJECTID")
-  ) %>% 
-  mutate(Prop_SW_PI = replace_na(totvalue, 0)) %>%
-  select(-totvalue)
+    readxl::read_xlsx("Data/groupcode_to_species.xlsx") %>%
+      select(-Allocation1, - Allocation) %>%
+      pivot_wider(names_from = `Species Code`, values_from = Allocation_Mike, values_fill = 0), by = c("Species" = "Group Code")
+  ) 
 
-yc2 = yc %>% 
+matching_data$PIspecies %>% filter(is.na(TA)) %>% pull(Species) %>% unique() # All these are codes we are OK getting rid of
+
+matching_data$PIspecies = matching_data$PIspecies %>%
+  rename(totvalue = value) %>%
+  pivot_longer(!OBJECTID & !Species & !totvalue) %>%
+  filter(value > 0) %>%
+  mutate(value = totvalue*value/100) %>% # Calculate the new percentage
+  select(-Species, -totvalue) %>%
+  rename(Species = name) %>%
+  rename(Prop_species_PI = value)
+
+# Calculate the data for the yield curves:
+matching_data$YCempirical = yc %>% 
   select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
   pivot_longer(!`_Age` & !FUNA) %>%
   separate(name, into = c("Species", NA), sep = -1) %>%
@@ -174,29 +196,39 @@ yc2 = yc %>%
   filter(Type == "SW") %>%
   ungroup()
 
-yc2 = yc %>%
+matching_data$YCempirical = yc %>%
   select(`_Age`, FUNA, DTY9, HGTmerch, VOLtot) %>%
   left_join(
-    yc2,by = join_by(`_Age`, FUNA)
+    matching_data$YCempirical,by = join_by(`_Age`, FUNA)
   ) %>%
   select(-Type, -value) %>%
   mutate(Prop_SW = replace_na(Prop_SW, 0))
 
+matching_data$YCspecies = yc %>% 
+  select(`_Age`, FUNA, contains("v"), -VOLtot) %>%
+  pivot_longer(!`_Age` & !FUNA) %>%
+  separate(name, into = c("Species", NA), sep = -1) %>%
+  group_by(`_Age`, FUNA) %>%
+  mutate(Prop_species = value/sum(value)) %>%
+  ungroup() %>%
+  mutate(Prop_species_yc = replace_na(Prop_species, 0)) %>%
+  select(-Prop_species, -value)
 
-IDS = unique(PIempirical$OBJECTID)
 
-matchfunction <- function(IDSf, empdata = PIempirical, ycdata = yc2){
+IDS = unique(matching_data$PIempirical$OBJECTID)
+
+matchfunction <- function(IDSf,mdata = matching_data){
   
   rescale01 <- function(X){
     (X - min(X, na.rm = T))/(max(X, na.rm = T) - min(X, na.rm = T))
   }
   
-  empdata2 = empdata %>%
+  empdata2 = matching_data$PIempirical %>%
     filter(OBJECTID == IDSf)
   
   if(dim(empdata2)[1] >1) stop("Repeated OBJECTID")
   
-  yc2 %>%
+  matching_data$YCempirical %>%
     mutate(dvol = rescale01((VOLtot - empdata2$GMV9_mean)^2),
            dsw = rescale01((Prop_SW - empdata2$Prop_SW_PI)^2),
            dheight = rescale01((HGTmerch - empdata2$AHT9_mean)^2),
@@ -212,8 +244,8 @@ matchfunction(IDSf = 5)
 
 cl = makeCluster(15)
 clusterEvalQ(cl, library(dplyr))
-clusterExport(cl=cl, varlist=c("PIempirical","yc2"))
-cors = parLapply(cl, IDS, matchfunction, empdata = PIempirical, ycdata = yc2)
+clusterExport(cl=cl, varlist=c("matching_data"))
+cors = parLapply(cl, IDS, matchfunction,mdata = matching_data)
 stopCluster(cl)
 
 do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_density.rds")
