@@ -26,19 +26,21 @@ yc = do.call("rbind", yc) %>%
 
 # Calculate the locations on the yield curves where there are between 25% and 75% softwood trees:
 
-yc %>%
-  select(`_Age`, FUNA, contains("v") & !VOLtot) %>%
-  pivot_longer(!`_Age`&!FUNA) %>%
-  separate(name, into = c("name", NA), sep = -1) %>%
-  left_join(
-    read_csv("C:/Users/rober/Documents/GitHubRepos/occupancy_exploration/Data/SPcodeHWSW.csv") %>% select(-Name), by = c("name" = "SpeciesCode")) %>%
-  group_by(`_Age`, FUNA, Type) %>%
-  summarize(value = sum(value)) %>%
-  mutate(Prop = replace_na(value/sum(value), 0)) %>%
-  select(-value) %>%
-  filter(Type == "SW" & Prop > 0.25 & Prop < 0.75) %>%
-  select(-Type) %>% rename(`Proportion softwood by volume` = Prop) %>%
-  write_csv("ResultsData/FUNA_prop_softwood.csv")
+if(F){
+  yc %>%
+    select(`_Age`, FUNA, contains("v") & !VOLtot) %>%
+    pivot_longer(!`_Age`&!FUNA) %>%
+    separate(name, into = c("name", NA), sep = -1) %>%
+    left_join(
+      read_csv("C:/Users/rober/Documents/GitHubRepos/occupancy_exploration/Data/SPcodeHWSW.csv") %>% select(-Name), by = c("name" = "SpeciesCode")) %>%
+    group_by(`_Age`, FUNA, Type) %>%
+    summarize(value = sum(value)) %>%
+    mutate(Prop = replace_na(value/sum(value), 0)) %>%
+    select(-value) %>%
+    filter(Type == "SW" & Prop > 0.25 & Prop < 0.75) %>%
+    select(-Type) %>% rename(`Proportion softwood by volume` = Prop) %>%
+    write_csv("ResultsData/FUNA_prop_softwood.csv")
+}
 
 # Get the landscape data ----
 
@@ -83,8 +85,8 @@ newPI = newPI %>%
 
 
 
-# Calculate the proportion of species cover by OBJECTID:
-newPI = newPI %>%
+# Calculate the proportion of softwood by OBJECTID:
+newPI_softwood = newPI %>%
   select(OBJECTID, contains("L1S"))%>%
   pivot_longer(-OBJECTID, values_to = "Species") %>%
   separate(name, into = c(NA, "name"), sep = -1) %>%
@@ -110,12 +112,42 @@ newPI = newPI %>%
   group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
   summarise(value = sum(value))
 
-newPI %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
+newPI_softwood %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
 
 # Check if all the OBJECTIDs are in both data sets:
-all(unique(newPI$OBJECTID) %in% Cedric_FUNA$OBJECTID)
+all(unique(newPI_softwood$OBJECTID) %in% Cedric_FUNA$OBJECTID)
 
-newPI = newPI %>%
+newPI_softwood = newPI_softwood %>%
+  rename(totvalue = value)
+
+
+# Calculate the proportion of species cover by OBJECTID:
+newPI_species = newPI %>%
+  select(OBJECTID, contains("L1S"))%>%
+  pivot_longer(-OBJECTID, values_to = "Species") %>%
+  separate(name, into = c(NA, "name"), sep = -1) %>%
+  full_join(
+    newPI %>%
+      select(OBJECTID, contains("L1PR"))%>%
+      pivot_longer(-OBJECTID) %>%
+      separate(name, into = c(NA, "name"), sep = -1)%>%
+      mutate(value = value/10) %>%
+      group_by(OBJECTID) %>%
+      mutate(Total = sum(value)) %>%
+      mutate(value = value/Total) %>% # Rescale so it sums to 1
+      select(-Total), by = c("OBJECTID", "name")
+  )  %>%
+  filter(!is.na(Species)) %>%
+  select(-name) %>%
+  group_by(OBJECTID, Species) %>% # Sometimes the same species is listed twice...combine those proportions
+  summarise(value = sum(value))
+
+newPI_species %>% group_by(OBJECTID) %>% summarize(value = sum(value)) %>% pull(value) %>% unique()
+
+# Check if all the OBJECTIDs are in both data sets:
+all(unique(newPI_species$OBJECTID) %in% Cedric_FUNA$OBJECTID)
+
+newPI_species = newPI_species %>%
   rename(totvalue = value)
 
 # Calculate the percent softwood for each OBJECTID:
@@ -123,7 +155,7 @@ newPI = newPI %>%
 PIempirical = PIobjects %>%
   select(OBJECTID, GMV9_mean, TPH9_mean, AHT9_mean) %>%
   left_join(
-    newPI %>% filter(Species == "SW") %>% select(-Species), by = c("OBJECTID")
+    newPI_softwood %>% filter(Species == "SW") %>% select(-Species), by = c("OBJECTID")
   ) %>% 
   mutate(Prop_SW_PI = replace_na(totvalue, 0)) %>%
   select(-totvalue)
@@ -141,8 +173,6 @@ yc2 = yc %>%
   mutate(Prop_SW = value/sum(value)) %>%
   filter(Type == "SW") %>%
   ungroup()
-
-yctheoretical
 
 yc2 = yc %>%
   select(`_Age`, FUNA, DTY9, HGTmerch, VOLtot) %>%
@@ -169,8 +199,9 @@ matchfunction <- function(IDSf, empdata = PIempirical, ycdata = yc2){
   yc2 %>%
     mutate(dvol = rescale01((VOLtot - empdata2$GMV9_mean)^2),
            dsw = rescale01((Prop_SW - empdata2$Prop_SW_PI)^2),
-           dheight = rescale01((HGTmerch - empdata2$AHT9_mean)^2)) %>%
-    mutate(diffall = dvol + dsw + dheight) %>%
+           dheight = rescale01((HGTmerch - empdata2$AHT9_mean)^2),
+           ddensity = rescale01((DTY9 - empdata2$TPH9_mean)^2)) %>%
+    mutate(diffall = dvol + dsw + ddensity) %>%
     slice_min(diffall) %>%
     mutate(OBJECTID = IDSf)
   
@@ -185,11 +216,11 @@ clusterExport(cl=cl, varlist=c("PIempirical","yc2"))
 cors = parLapply(cl, IDS, matchfunction, empdata = PIempirical, ycdata = yc2)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_height.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_density.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matching_SW_vol_height.rds")
+finalmatch = read_rds("ResultsData/matches/matching_SW_vol_density.rds")
 
 
 read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
