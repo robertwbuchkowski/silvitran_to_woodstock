@@ -247,7 +247,7 @@ matchfunction <- function(IDSf,mdata = matching_data){
     ) %>% mutate(dSpecies = replace_na(dSpecies,0))
   
   temp1 %>% 
-    mutate(diffall = dvol + dsw + dSpecies) %>%
+    mutate(diffall = dvol + dsw + ddensity) %>%
     slice_min(diffall) %>%
     mutate(OBJECTID = IDSf)
   
@@ -262,11 +262,11 @@ clusterExport(cl=cl, varlist=c("matching_data"))
 cors = parLapply(cl, IDS, matchfunction,mdata = matching_data)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_dSpecies.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matching_SW_vol_denisty.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matching_SW_vol_dSpecies.rds")
+finalmatch = read_rds("ResultsData/matches/matching_SW_vol_density.rds")
 
 
 read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020/Gagetown_Landbase_07_24_2020.shp") %>%
@@ -397,68 +397,10 @@ finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landb
   mutate(Shape_Area = st_area(.)) %>%
   mutate(Shape_Area = as.numeric(Shape_Area/10000)) # Convert m2 to hectares
 
-finalmap %>%
-  filter(Type == "Full") %>%
-  select(OBJECTID, `_Age`, FUNA) %>%
-  write_sf("Data/height_match/height_match.shp")
-
-# Calculate the total species composition
-finalmap %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
-  left_join(
-    yc %>% select(`_Age`, FUNA, contains("v"), -VOLtot), by = c("_Age", "FUNA")
-  ) %>%
-  pivot_longer(contains('v')) %>%
-  mutate(GMV9area = value*Shape_Area) %>% # Multiple GMV m2/ha by ha of the stand
-  group_by(name, Type, Run) %>%
-  summarize(GMV9area = sum(GMV9area, na.rm = T)) %>%
-  group_by(Type, Run) %>%
-  separate(name, into = c("Species", NA), sep = -1) %>%
-  mutate(GMV9area = 100*GMV9area/sum(GMV9area)) %>%
-  filter(!is.na(Type))  %>% 
-  filter(Type == "Full") %>%
-  arrange(GMV9area) %>% pivot_wider(names_from = Run, values_from = GMV9area) %>%
-  left_join(
-    coverprops %>% rename(`PI Cover` = value), by = "Species") %>% write_csv("matching_percents_mike.csv")
-
-finalmap %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
-  filter(Type == 'Full') %>%
-  group_by(Run, FUNA) %>%
-  summarize(Age = paste0(signif(mean(`_Age`), 2), " (", signif(sd(`_Age`), 2), ") %")) %>%
-  pivot_wider(names_from = Run, values_from = Age)%>% write_csv("avg_age_FUNA_mike.csv")
-
-finalmap %>%
-  st_drop_geometry() %>%
-  select(OBJECTID, Shape_Area, `_Age`, FUNA, Type, Run) %>%
-  filter(Type == 'Full') %>%
-  group_by(Run, FUNA) %>%
-  summarize(Age = sum(Shape_Area)) %>%
-  pivot_wider(names_from = Run, values_from = Age)%>% write_csv("FUNA_area_mike.csv")
-
-
-finalmap_Full = finalmap %>% filter(Type == "Full")
-
-table(finalmap_Full$L1FUNA, finalmap_Full$FUNA) %>%
-  as.data.frame() %>%
-  pivot_wider(names_from = Var2, values_from = Freq) %>%
-  rename(`Interpreted FUNA` = Var1) %>%
-  write_csv("matching_FUNAs.csv")
-
-pdf("matching_maps_height.pdf", width = 8, height = 8)
-finalmap_Full %>%
-  ggplot(aes(fill = FUNA, color = FUNA)) + geom_sf()
-
-finalmap_Full %>%
-  ggplot(aes(fill = `_Age`, color = `_Age`)) + geom_sf()
-dev.off()
-
 
 #Add Woodstock themes ----
 library(data.table)
-map = finalmap_Full
+map = finalmap
 
 Zones = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/mgmt.shp")
 
