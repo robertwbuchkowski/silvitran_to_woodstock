@@ -389,11 +389,14 @@ area_objects %>%
 
 
 # Here we are using Cedric's map to assign the FUNA and Age matches to the divided polygons.
-finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp") %>% 
-  select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5) %>%
+finalmap = read_sf("C:/Users/rober/Documents/AFC/Data/DataFromAFC/Gagetown_Landbase_07_24_2020_Cedric/Gagetown_Landbase_07_24_2020b.shp")%>%
   left_join(
     finalmatch, by = "OBJECTID"
-  ) %>%
+  ) %>% 
+  # Turn the non-forest polygons into non-forest and zero Age
+  mutate(`_Age` = ifelse(CAT == "FO", `_Age`, 0)) %>%
+  mutate(FUNA = ifelse(CAT == "FO", FUNA, "XXNF")) %>%
+  select(OBJECTID, L1FUNA,Shape_Area,TRT,THEME5,`_Age`,FUNA) %>%
   mutate(Shape_Area = st_area(.)) %>%
   mutate(Shape_Area = as.numeric(Shape_Area/10000)) # Convert m2 to hectares
 
