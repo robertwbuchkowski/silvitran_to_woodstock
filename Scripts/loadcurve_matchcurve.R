@@ -81,8 +81,6 @@ newPI = newPI %>%
          L1S5 = ifelse(is.na(L1S5) & !is.na(L2S5), L2S5, L1S5)) %>%
   select(OBJECTID, contains("L1S"), contains("L1PR"))
 
-
-
 # Calculate the proportion of species cover by OBJECTID:
 newPI = newPI %>%
   select(OBJECTID, contains("L1S"))%>%
@@ -198,6 +196,10 @@ yc2 = yc %>%
   mutate(Prop_species = value/sum(value)) %>%
   ungroup() %>%
   mutate(Prop_species_yc = replace_na(Prop_species, 0))
+
+# Subset the yc to only include ages 1, 25, 50 and 75:
+
+yc2 %>% mutate(Years = `_Age`*5) %>% filter(Years %in% c(1,25,50,75)) %>% View()
 
 IDS = unique(PImatchyc$OBJECTID)
 
