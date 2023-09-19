@@ -198,8 +198,9 @@ yc2 = yc %>%
   mutate(Prop_species_yc = replace_na(Prop_species, 0))
 
 # Subset the yc to only include ages 1, 25, 50 and 75:
+yc2 = yc2 %>% mutate(Years = `_Age`*5) %>% filter(Years %in% c(1,25,50,75)) %>% select(-Years)
 
-yc2 %>% mutate(Years = `_Age`*5) %>% filter(Years %in% c(1,25,50,75)) %>% View()
+yc = yc %>% mutate(Years = `_Age`*5) %>% filter(Years %in% c(1,25,50,75)) %>% select(-Years)
 
 IDS = unique(PImatchyc$OBJECTID)
 
@@ -289,17 +290,17 @@ matchfunction <- function(IDSf, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PI
 matchfunction(IDSf = 3)
 
 
-cl = makeCluster(15)
+cl = makeCluster(20)
 clusterEvalQ(cl, library(dplyr))
 clusterExport(cl=cl, varlist=c("PImatchyc","yc2","yc", "PIobjects", "Cedric_FUNA"))
 cors = parLapply(cl, IDS, matchfunction, PImatchycf = PImatchyc, yc2f = yc2, ycf = yc, PIobjectsf = PIobjects, Cedric_FUNAf = Cedric_FUNA)
 stopCluster(cl)
 
-do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
+do.call("rbind", cors) %>% write_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty_ages_25_50_75_only.rds")
 
 # Load back in the final matches and plot them:
 
-finalmatch = read_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty.rds")
+finalmatch = read_rds("ResultsData/matches/matchingFUNAage_sp_vol_denisty_ages_25_50_75_only.rds")
 
 
 # Compare fits for the different versions:
